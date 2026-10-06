@@ -12,6 +12,7 @@ const overlayActions = document.getElementById('overlay-actions')
 const connectBtn = document.getElementById('connect')
 const downloadLink = document.getElementById('download')
 const getAppLink = document.getElementById('get-app')
+const soundHint = document.getElementById('sound-hint')
 const deviceSelect = document.getElementById('device')
 const resSelect = document.getElementById('resolution')
 const fpsSelect = document.getElementById('framerate')
@@ -82,6 +83,7 @@ function hideStatus() {
 }
 
 function stop() {
+  soundHint.classList.add('hidden')
   if (stream) stream.getTracks().forEach((t) => t.stop())
   if (audioCtx) audioCtx.close()
   stream = null
@@ -271,6 +273,7 @@ async function start(deviceId) {
       .createMediaStreamSource(new MediaStream(stream.getAudioTracks()))
       .connect(gainNode)
       .connect(audioCtx.destination)
+    watchAudioState(audioCtx)
   }
 
   const track = stream.getVideoTracks()[0]
@@ -320,6 +323,24 @@ connectBtn.onclick = () => {
   allowedToConnect = true
   autoConnect()
 }
+
+// Browsers keep audio paused until the visitor clicks or presses a key on the page.
+// Show a prompt until then, and resume on the first interaction.
+
+function watchAudioState(ctx) {
+  const update = () => soundHint.classList.toggle('hidden', ctx.state !== 'suspended')
+  ctx.onstatechange = update
+  ctx.resume().catch(() => {})
+  update()
+}
+
+function resumeAudio() {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
+}
+
+window.addEventListener('pointerdown', resumeAudio)
+window.addEventListener('keydown', resumeAudio)
+soundHint.onclick = resumeAudio
 
 // Scaling
 
