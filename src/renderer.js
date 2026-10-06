@@ -96,13 +96,25 @@ function stop() {
 async function getDevices() {
   let devices = await navigator.mediaDevices.enumerateDevices()
 
-  // Device names stay blank until camera access is granted once
-  if (devices.some((d) => d.kind === 'videoinput' && !d.label)) {
+  // Browsers hide device names and IDs until access is granted. Ask for the
+  // microphone too, since the dongle's game audio arrives as a microphone.
+  const hidden = devices.some(
+    (d) => (d.kind === 'videoinput' || d.kind === 'audioinput') && !d.label
+  )
+  if (hidden) {
+    let temp = null
     try {
-      const temp = await navigator.mediaDevices.getUserMedia({ video: true })
+      temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    } catch {
+      // No microphone allowed or present, so carry on with video only
+      try {
+        temp = await navigator.mediaDevices.getUserMedia({ video: true })
+      } catch {}
+    }
+    if (temp) {
       temp.getTracks().forEach((t) => t.stop())
       devices = await navigator.mediaDevices.enumerateDevices()
-    } catch {}
+    }
   }
 
   return {
