@@ -1,0 +1,24 @@
+name: Release Windows app
+
+# Runs when you push a version tag, like v1.0.1
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run make
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/make/squirrel.windows/x64/ConsoleViewerSetup.exe

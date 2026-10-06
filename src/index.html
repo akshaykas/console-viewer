@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Play your game console on your laptop screen with a USB HDMI capture dongle." />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    />
+    <title>Console Viewer</title>
+    <link rel="stylesheet" href="index.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  </head>
+  <body>
+    <div id="stage">
+      <video id="video" autoplay playsinline muted></video>
+    </div>
+
+    <div id="hud" class="hidden">
+      <div class="row" title="Time from when your computer receives a frame to when it is drawn. Does not include the dongle's own delay.">
+        <span class="label">Display delay</span><span id="hud-latency">n/a</span>
+      </div>
+      <div class="row"><span class="label">Frame rate</span><span id="hud-fps">--</span></div>
+      <div class="row"><span class="label">Dropped frames</span><span id="hud-dropped">--</span></div>
+      <div class="row" title="Delay added by your speakers or headphones output.">
+        <span class="label">Audio delay</span><span id="hud-audio">--</span>
+      </div>
+      <div class="row"><span class="label">Signal</span><span id="hud-signal">--</span></div>
+      <div class="row"><span class="label">Scale</span><span id="hud-scale">--</span></div>
+    </div>
+
+    <div id="overlay">
+      <div class="message">
+        <h1 id="status-title">Looking for your capture device</h1>
+        <p id="status-detail"></p>
+        <div id="overlay-actions" class="actions hidden">
+          <button id="connect" class="primary hidden">Connect capture device</button>
+          <a id="download" class="download hidden" href="__WINDOWS_DOWNLOAD_URL__">Download the Windows app</a>
+        </div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <select id="device" aria-label="Capture device"></select>
+      <select id="resolution" aria-label="Resolution"></select>
+      <select id="framerate" aria-label="Frame rate"></select>
+      <select id="scaling" aria-label="Scaling" title="Scaling (S)">
+        <option value="fit">Fit</option>
+        <option value="stretch">Stretch</option>
+        <option value="integer">Pixel perfect</option>
+        <option value="aspect43">4:3</option>
+      </select>
+      <label class="volume">
+        Volume
+        <input id="volume" type="range" min="0" max="1.5" step="0.05" value="1" />
+      </label>
+      <button id="pip" aria-pressed="false" title="Picture in picture (P)">Picture in picture</button>
+      <button id="stats" aria-pressed="false" title="Show delay and frame stats (L)">Stats</button>
+      <button id="fullscreen" title="Full screen (F11, F or double-click)">Full screen</button>
+      <a id="get-app" class="app-link hidden" href="__WINDOWS_DOWNLOAD_URL__">Windows app</a>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
