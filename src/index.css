@@ -367,6 +367,11 @@ input[type="range"] {
   height: 18px;
 }
 
+/* Once the app is downloaded or installed, the button opens it instead */
+.js-get-app.known .icon {
+  display: none;
+}
+
 .app-link:hover {
   background: var(--accent-soft);
 }

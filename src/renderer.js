@@ -172,8 +172,13 @@ let allowedToConnect = !isWeb
 const recType = pickRecordingType()
 const filters = new FilterRenderer(video, filterCanvas)
 
-// The download link only makes sense on the website, for Windows visitors
-const offerDownload = isWeb && isWindows
+// Running as an app installed from the browser, in its own window
+const isInstalledWebApp =
+  window.matchMedia?.('(display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: minimal-ui)')
+    .matches || navigator.standalone === true
+
+// The download link only makes sense in a browser tab, for Windows visitors
+const offerDownload = isWeb && isWindows && !isInstalledWebApp
 
 // Toasts
 
@@ -227,13 +232,20 @@ $('tip-never').onclick = () => {
 
 const setupTemplate = $('setup-template')
 
-function showStatus(title, detail = '', { connect = false, download = false, setup = false } = {}) {
+function showStatus(
+  title,
+  detail = '',
+  { connect = false, download = false, installer = false, setup = false } = {}
+) {
   statusTitle.textContent = title
   statusDetail.textContent = detail
   statusSetup.replaceChildren(...(setup ? [setupTemplate.content.cloneNode(true)] : []))
+  const showDownload = download && offerDownload
+  const showInstaller = installer && offerDownload
   connectBtn.classList.toggle('hidden', !connect)
-  downloadLink.classList.toggle('hidden', !(download && offerDownload))
-  overlayActions.classList.toggle('hidden', !connect && !(download && offerDownload))
+  downloadLink.classList.toggle('hidden', !showDownload)
+  $('download-installer').classList.toggle('hidden', !showInstaller)
+  overlayActions.classList.toggle('hidden', !connect && !showDownload && !showInstaller)
   overlay.classList.remove('hidden')
 }
 
@@ -1444,53 +1456,75 @@ if (navigator.mediaDevices) {
 }
 
 // Windows app button
-// Websites can't see what's installed, so try the app's link first. If the
-// browser hands it off, the page loses focus. If nothing happens, download.
+// Websites can't see what's installed, and guessing from focus breaks when
+// Windows shows its own "find an app" popup. So the first click downloads the
+// installer, and after that the button opens the app.
 
 const APP_LINK = 'console-viewer://open'
-const HANDOFF_WAIT_MS = 2500
-let handoffPending = false
+const appState = { downloaded: false, pwaInstalled: false, ...load('cv.windowsApp', {}) }
+const installerLink = $('download-installer')
 
-function openOrDownloadApp(event) {
-  event.preventDefault()
-  if (handoffPending) return
-  handoffPending = true
-
-  const downloadUrl = event.currentTarget.href
-  let handedOff = false
-
-  const onHandoff = () => {
-    handedOff = true
+function updateAppLinks() {
+  const known = appState.downloaded || appState.pwaInstalled
+  for (const link of document.querySelectorAll('.js-get-app')) {
+    link.classList.toggle('known', known)
+    const label = link.querySelector('.app-label')
+    if (label) label.textContent = appState.downloaded ? label.dataset.known : label.dataset.new
   }
-  window.addEventListener('blur', onHandoff, { once: true })
-  document.addEventListener('visibilitychange', onHandoff, { once: true })
+  $('get-app').dataset.tip = appState.downloaded ? 'Open the desktop app' : 'Download the desktop app'
+}
 
+function markDownloaded() {
+  appState.downloaded = true
+  save('cv.windowsApp', appState)
+  updateAppLinks()
+  toast('Downloading the Windows app. Once it is installed, this button opens it.', { duration: 7000 })
+}
+
+function downloadInstaller(url) {
+  markDownloaded()
+  window.location.href = url
+}
+
+function openWindowsApp() {
+  // Free the dongle first, since usually only one program can use it at a time
+  stop()
+  hideLanding()
+  closeSettings()
   window.location.href = APP_LINK
+  showStatus(
+    'Opening the Windows app',
+    "The capture device was released so the app can use it. If Windows asks you to find an app instead, the app isn't installed yet.",
+    { connect: true, installer: true }
+  )
+}
 
-  setTimeout(() => {
-    window.removeEventListener('blur', onHandoff)
-    document.removeEventListener('visibilitychange', onHandoff)
-    handoffPending = false
-
-    if (handedOff) {
-      // Free the dongle so the desktop app can open it
-      stop()
-      hideLanding()
-      showStatus(
-        'Opened in the Windows app',
-        'The capture device was released so the app can use it. To keep watching here instead, close the app and reconnect.',
-        { connect: true }
-      )
-    } else {
-      window.location.href = downloadUrl
-    }
-  }, HANDOFF_WAIT_MS)
+function onAppLinkClick(event) {
+  event.preventDefault()
+  if (appState.downloaded) openWindowsApp()
+  else downloadInstaller(event.currentTarget.href)
 }
 
 for (const link of document.querySelectorAll('.js-get-app')) {
-  link.addEventListener('click', openOrDownloadApp)
+  link.addEventListener('click', onAppLinkClick)
   if (offerDownload && link !== downloadLink) link.classList.remove('hidden')
 }
+
+// A plain link, so the browser starts the download itself
+installerLink.addEventListener('click', markDownloaded)
+
+// Installing the website as an app from the browser counts too
+window.addEventListener('appinstalled', () => {
+  appState.pwaInstalled = true
+  save('cv.windowsApp', appState)
+  updateAppLinks()
+})
+
+if (isInstalledWebApp && !appState.pwaInstalled) {
+  appState.pwaInstalled = true
+  save('cv.windowsApp', appState)
+}
+updateAppLinks()
 
 // Front page demo: a real clip at media/demo.mp4 replaces the drawing
 demoVideo.addEventListener('loadeddata', () => {

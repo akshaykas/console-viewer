@@ -93,7 +93,10 @@
         <div id="overlay-actions" class="actions hidden">
           <button id="connect" class="btn primary hidden">Connect capture device</button>
           <a id="download" class="btn ghost js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">
-            <svg class="icon"><use href="#i-download" /></svg>Open the Windows app
+            <svg class="icon"><use href="#i-download" /></svg><span class="app-label" data-new="Download the Windows app" data-known="Open the Windows app">Download the Windows app</span>
+          </a>
+          <a id="download-installer" class="btn ghost hidden" href="__WINDOWS_DOWNLOAD_URL__">
+            <svg class="icon"><use href="#i-download" /></svg>Download the installer
           </a>
         </div>
       </div>
@@ -163,7 +166,7 @@
         </button>
       </div>
 
-      <a id="get-app" class="app-link js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__" data-tip="Open or download the desktop app">
+      <a id="get-app" class="app-link js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__" data-tip="Download the desktop app">
         <svg class="icon"><use href="#i-download" /></svg>Windows app
       </a>
     </div>
@@ -331,7 +334,7 @@
           <div class="hero-actions">
             <button id="landing-connect" class="btn primary large">Connect capture device</button>
             <a class="btn ghost large js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">
-              <svg class="icon"><use href="#i-download" /></svg>Get the Windows app
+              <svg class="icon"><use href="#i-download" /></svg><span class="app-label" data-new="Get the Windows app" data-known="Open the Windows app">Get the Windows app</span>
             </a>
             <button id="landing-back" class="btn ghost large hidden">Back to the viewer</button>
           </div>
