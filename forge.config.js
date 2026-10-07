@@ -42,6 +42,8 @@ module.exports = {
     appCategoryType: 'public.app-category.games',
     // Forge picks icon.icns on macOS and icon.ico on Windows
     icon: asset('icon'),
+    // Lets the website open the installed app with console-viewer:// links
+    protocols: [{ name: 'Console Viewer', schemes: ['console-viewer'] }],
     extendInfo: {
       NSCameraUsageDescription:
         'Console Viewer shows the video from your HDMI capture dongle, which your Mac treats as a camera.',

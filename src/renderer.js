@@ -336,6 +336,52 @@ connectBtn.onclick = () => {
   autoConnect()
 }
 
+// Windows app button
+// Websites can't see what's installed, so try the app's link first. If the
+// browser hands it off, the page loses focus. If nothing happens, download.
+
+const APP_LINK = 'console-viewer://open'
+const HANDOFF_WAIT_MS = 2500
+let handoffPending = false
+
+function openOrDownloadApp(event) {
+  event.preventDefault()
+  if (handoffPending) return
+  handoffPending = true
+
+  const downloadUrl = event.currentTarget.href
+  let handedOff = false
+
+  const onHandoff = () => {
+    handedOff = true
+  }
+  window.addEventListener('blur', onHandoff, { once: true })
+  document.addEventListener('visibilitychange', onHandoff, { once: true })
+
+  window.location.href = APP_LINK
+
+  setTimeout(() => {
+    window.removeEventListener('blur', onHandoff)
+    document.removeEventListener('visibilitychange', onHandoff)
+    handoffPending = false
+
+    if (handedOff) {
+      // Free the dongle so the desktop app can open it
+      stop()
+      showStatus(
+        'Opened in the Windows app',
+        'The capture device was released so the app can use it. To keep watching here instead, close the app and reconnect.',
+        { connect: true }
+      )
+    } else {
+      window.location.href = downloadUrl
+    }
+  }, HANDOFF_WAIT_MS)
+}
+
+getAppLink.addEventListener('click', openOrDownloadApp)
+downloadLink.addEventListener('click', openOrDownloadApp)
+
 // Browsers keep audio paused until the visitor clicks or presses a key on the page.
 // Show a prompt until then, and resume on the first interaction.
 
