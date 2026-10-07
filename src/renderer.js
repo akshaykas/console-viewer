@@ -3,6 +3,9 @@ const api = window.consoleViewer
 const isWeb = !api
 const isWindows =
   navigator.userAgentData?.platform === 'Windows' || /Windows/.test(navigator.userAgent)
+const isMac =
+  api?.platform === 'darwin' ||
+  /mac/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent)
 
 const $ = (id) => document.getElementById(id)
 
@@ -40,6 +43,7 @@ const profileName = $('profile-name')
 const audioDelay = $('audio-delay')
 const audioDelayValue = $('audio-delay-value')
 const micSelect = $('mic')
+const gameAudioSelect = $('game-audio')
 const micLevel = $('mic-level')
 const replayToggle = $('replay-toggle')
 const lowLatencyToggle = $('low-latency-toggle')
@@ -139,6 +143,8 @@ const prefs = {
   stats: legacy('stats') === '1',
   micId: '',
   micLevel: 1,
+  // Game audio picked by hand, per video device name
+  gameAudio: {},
   videoDevice: legacy('videoDevice') || '',
   ...load('cv.prefs', {}),
 }
@@ -294,20 +300,96 @@ async function getDevices() {
     }
   }
 
+  const audios = devices.filter((d) => d.kind === 'audioinput')
   return {
     videos: devices.filter((d) => d.kind === 'videoinput'),
-    audios: devices.filter((d) => d.kind === 'audioinput'),
+    audios,
+    // Without microphone access, audio devices come back nameless
+    audioAllowed: audios.some((a) => a.label),
   }
 }
 
-// The dongle's audio input shares a groupId with its video input
+// Real audio inputs, without the "default" and "communications" aliases
+const realAudioInputs = (audios) =>
+  audios.filter((a) => a.label && a.deviceId !== 'default' && a.deviceId !== 'communications')
+
+// Finds the dongle's sound, which shows up as a separate microphone
+function autoDongleAudio(vid, audios) {
+  const real = realAudioInputs(audios)
+
+  // Same physical device. Works on Windows, but Chrome on a Mac usually
+  // gives the picture and the sound different group IDs.
+  const sameGroup = real.find((a) => a.groupId === vid.groupId)
+  if (sameGroup) return sameGroup
+
+  // Same USB vendor and product ID, which Chrome adds to device names
+  const usbId = vid.label.match(/\(([0-9a-f]{4}:[0-9a-f]{4})\)/i)?.[1]?.toLowerCase()
+  const sameUsb = usbId && real.find((a) => a.label.toLowerCase().includes(usbId))
+  if (sameUsb) return sameUsb
+
+  // Same name, without the USB ID
+  const base = vid.label.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase()
+  const sameName = base.length > 3 && real.find((a) => a.label.toLowerCase().includes(base))
+  if (sameName) return sameName
+
+  // Names capture dongles usually give their sound
+  return real.find((a) => looksLikeCapture(a.label) || /usb digital audio/i.test(a.label)) || null
+}
+
+// A choice made in settings wins over automatic matching
 function findDongleAudio(vid, audios) {
-  return (
-    audios.find(
-      (a) =>
-        a.groupId === vid.groupId && a.deviceId !== 'default' && a.deviceId !== 'communications'
-    ) || audios.find((a) => looksLikeCapture(a.label))
-  )
+  const saved = prefs.gameAudio[vid.label]
+  if (saved === 'none') return null
+  if (saved) {
+    const real = realAudioInputs(audios)
+    const match = real.find((a) => a.deviceId === saved.id) || real.find((a) => a.label === saved.label)
+    if (match) return match
+  }
+  return autoDongleAudio(vid, audios)
+}
+
+function fillGameAudioList(vid, audios) {
+  const auto = autoDongleAudio(vid, audios)
+  gameAudioSelect.innerHTML = ''
+  gameAudioSelect.add(new Option(auto ? `Automatic (${auto.label})` : 'Automatic (not found)', ''))
+  gameAudioSelect.add(new Option('None', 'none'))
+  for (const a of realAudioInputs(audios)) gameAudioSelect.add(new Option(a.label, a.deviceId))
+
+  const saved = prefs.gameAudio[vid.label]
+  if (saved === 'none') gameAudioSelect.value = 'none'
+  else if (saved) gameAudioSelect.value = findDongleAudio(vid, audios)?.deviceId || ''
+  else gameAudioSelect.value = ''
+  gameAudioSelect.disabled = false
+}
+
+// Explains why there's no game sound, once the picture is up
+function explainMissingAudio(audioAllowed, aud, audioError) {
+  if (prefs.gameAudio[currentDevice.label] === 'none') return
+  if (!audioAllowed || audioError === 'NotAllowedError') {
+    let text
+    if (isMac) {
+      text = isWeb
+        ? "Your Mac isn't letting your browser use the microphone, and the dongle's sound arrives as one. Open System Settings, go to Privacy & Security, then Microphone, and turn on your browser. Then reload this page."
+        : "Your Mac isn't letting Console Viewer use the microphone, and the dongle's sound arrives as one. Open System Settings, go to Privacy & Security, then Microphone, and turn on Console Viewer. Then reopen the app."
+    } else {
+      text = isWeb
+        ? 'The dongle\'s sound arrives as a microphone. Click the icon to the left of the address bar, allow the microphone, then reload the page.'
+        : "The dongle's sound arrives as a microphone. Allow microphone access for Console Viewer in your privacy settings, then reopen the app."
+    }
+    showTip('audio-blocked', 'Game sound is blocked', text)
+  } else if (aud && audioError) {
+    showTip(
+      'audio-busy',
+      "Couldn't open the game sound",
+      `Another app may be using it. Close other apps that use the dongle, then reconnect.${isMac ? ' On a Mac, also check Privacy & Security, then Microphone, in System Settings.' : ''}`
+    )
+  } else if (!aud) {
+    showTip(
+      'audio-missing',
+      "Couldn't find the game sound",
+      'Open settings with O and choose your dongle under Game audio. Its name usually matches the dongle, or says USB Digital Audio.'
+    )
+  }
 }
 
 async function refreshDevices() {
@@ -380,7 +462,7 @@ async function start(deviceId) {
   stop()
   showStatus('Connecting')
 
-  const { videos, audios } = await getDevices()
+  const { videos, audios, audioAllowed } = await getDevices()
   const vid = videos.find((v) => v.deviceId === deviceId)
 
   if (!vid) {
@@ -405,6 +487,7 @@ async function start(deviceId) {
   const frameRate = p.framerate
   const aud = findDongleAudio(vid, audios)
   fillMicList(audios, aud)
+  fillGameAudioList(vid, audios)
 
   const audio = aud
     ? {
@@ -417,6 +500,20 @@ async function start(deviceId) {
       }
     : false
 
+  // If the sound fails to open, keep going with just the picture
+  let audioError = null
+  const openStream = async (video) => {
+    if (!audio || audioError) return navigator.mediaDevices.getUserMedia({ video, audio: false })
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video, audio })
+    } catch (err) {
+      if (err.name === 'OverconstrainedError') throw err
+      const videoOnly = await navigator.mediaDevices.getUserMedia({ video, audio: false })
+      audioError = err.name
+      return videoOnly
+    }
+  }
+
   // For games, frame rate matters more than resolution. Start at the chosen
   // resolution and step down until the dongle offers the chosen frame rate.
   const startIndex = Math.max(0, RESOLUTIONS.findIndex(([value]) => value === p.resolution))
@@ -427,16 +524,13 @@ async function start(deviceId) {
   for (const value of candidates) {
     const [w, h] = value.split('x').map(Number)
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: { exact: deviceId },
-          width: { exact: w },
-          height: { exact: h },
-          frameRate: { min: frameRate - 1, ideal: frameRate },
-          // Use the dongle's real modes instead of letting Chrome rescale
-          resizeMode: 'none',
-        },
-        audio,
+      stream = await openStream({
+        deviceId: { exact: deviceId },
+        width: { exact: w },
+        height: { exact: h },
+        frameRate: { min: frameRate - 1, ideal: frameRate },
+        // Use the dongle's real modes instead of letting Chrome rescale
+        resizeMode: 'none',
       })
       usedResolution = value
       break
@@ -449,14 +543,11 @@ async function start(deviceId) {
   // Nothing matched, so let the browser pick the closest mode it can
   if (!stream && lastError?.name === 'OverconstrainedError') {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: { exact: deviceId },
-          width: { ideal: width },
-          height: { ideal: height },
-          frameRate: { ideal: frameRate },
-        },
-        audio,
+      stream = await openStream({
+        deviceId: { exact: deviceId },
+        width: { ideal: width },
+        height: { ideal: height },
+        frameRate: { ideal: frameRate },
       })
     } catch (err) {
       lastError = err
@@ -503,6 +594,7 @@ async function start(deviceId) {
 
   video.srcObject = new MediaStream(stream.getVideoTracks())
   setupAudio()
+  if (!stream.getAudioTracks().length) explainMissingAudio(audioAllowed, aud, audioError)
 
   const track = stream.getVideoTracks()[0]
   track.onended = () => {
@@ -1240,6 +1332,20 @@ volume.oninput = () => {
 
 muteBtn.onclick = toggleMute
 
+// Picking the game sound by hand, remembered for this dongle
+gameAudioSelect.onchange = () => {
+  if (!currentDevice) return
+  const value = gameAudioSelect.value
+  if (!value) delete prefs.gameAudio[currentDevice.label]
+  else if (value === 'none') prefs.gameAudio[currentDevice.label] = 'none'
+  else {
+    const label = gameAudioSelect.selectedOptions[0].textContent
+    prefs.gameAudio[currentDevice.label] = { id: value, label }
+  }
+  savePrefs()
+  start(currentDevice.deviceId)
+}
+
 micSelect.onchange = () => {
   prefs.micId = micSelect.value
   savePrefs()
@@ -1547,6 +1653,8 @@ if (!recType) {
 }
 
 micLevel.value = String(prefs.micLevel)
+gameAudioSelect.add(new Option('Connect your dongle first', ''))
+gameAudioSelect.disabled = true
 replayToggle.checked = prefs.replay
 lowLatencyToggle.checked = prefs.lowLatency
 lowLatencyBtn.setAttribute('aria-pressed', String(prefs.lowLatency))
