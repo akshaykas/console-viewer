@@ -5,6 +5,8 @@ const FILES = [
   './',
   'index.html',
   'index.css',
+  'filters.js',
+  'recording.js',
   'renderer.js',
   'manifest.webmanifest',
   'icons/icon-192.png',

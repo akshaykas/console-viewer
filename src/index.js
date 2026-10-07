@@ -1,4 +1,14 @@
-const { app, BrowserWindow, session, systemPreferences } = require('electron')
+const {
+  app,
+  BrowserWindow,
+  clipboard,
+  ipcMain,
+  nativeImage,
+  session,
+  shell,
+  systemPreferences,
+} = require('electron')
+const fs = require('node:fs/promises')
 const path = require('node:path')
 
 // The website opens the installed app through links like console-viewer://open
@@ -90,6 +100,8 @@ function createWindow() {
     title: 'Console Viewer',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      // Keep drawing at full speed while another window has focus or picture in picture is open
+      backgroundThrottling: false,
     },
   })
 
@@ -99,6 +111,50 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'))
 }
+
+// Screenshots go to Pictures and clips to Videos, in a Console Viewer folder
+const CAPTURE_TYPES = {
+  screenshot: { folder: 'pictures', exts: new Set(['png']) },
+  video: { folder: 'videos', exts: new Set(['mp4', 'webm']) },
+}
+const savedFiles = new Set()
+
+function timestamp() {
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+}
+
+ipcMain.handle('capture:save', async (event, kind, ext, data) => {
+  const type = CAPTURE_TYPES[kind]
+  if (!type || !type.exts.has(ext) || !(data instanceof ArrayBuffer)) {
+    throw new Error('Unsupported capture')
+  }
+  const dir = path.join(app.getPath(type.folder), 'Console Viewer')
+  await fs.mkdir(dir, { recursive: true })
+  const prefix = kind === 'screenshot' ? 'Screenshot' : 'Clip'
+  let file = path.join(dir, `${prefix} ${timestamp()}.${ext}`)
+  for (let n = 2; await fs.stat(file).then(() => true, () => false); n++) {
+    file = path.join(dir, `${prefix} ${timestamp()} (${n}).${ext}`)
+  }
+  await fs.writeFile(file, Buffer.from(data))
+  savedFiles.add(file)
+  return file
+})
+
+// Only reveals files this app saved
+ipcMain.handle('capture:reveal', (event, file) => {
+  if (savedFiles.has(file)) shell.showItemInFolder(file)
+})
+
+ipcMain.handle('capture:copy-image', (event, data) => {
+  if (!(data instanceof ArrayBuffer)) return false
+  const image = nativeImage.createFromBuffer(Buffer.from(data))
+  if (image.isEmpty()) return false
+  // writeImage was removed in newer Electron versions, write works in all of them
+  clipboard.write({ image })
+  return true
+})
 
 app.whenReady().then(async () => {
   if (!gotLock) return

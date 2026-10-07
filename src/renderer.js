@@ -4,30 +4,60 @@ const isWeb = !api
 const isWindows =
   navigator.userAgentData?.platform === 'Windows' || /Windows/.test(navigator.userAgent)
 
-const video = document.getElementById('video')
-const overlay = document.getElementById('overlay')
-const statusTitle = document.getElementById('status-title')
-const statusDetail = document.getElementById('status-detail')
-const overlayActions = document.getElementById('overlay-actions')
-const connectBtn = document.getElementById('connect')
-const downloadLink = document.getElementById('download')
-const getAppLink = document.getElementById('get-app')
-const soundHint = document.getElementById('sound-hint')
-const deviceSelect = document.getElementById('device')
-const resSelect = document.getElementById('resolution')
-const fpsSelect = document.getElementById('framerate')
-const scaleSelect = document.getElementById('scaling')
-const volume = document.getElementById('volume')
-const pipBtn = document.getElementById('pip')
-const statsBtn = document.getElementById('stats')
-const fullscreenBtn = document.getElementById('fullscreen')
-const hud = document.getElementById('hud')
-const hudLatency = document.getElementById('hud-latency')
-const hudFps = document.getElementById('hud-fps')
-const hudDropped = document.getElementById('hud-dropped')
-const hudAudio = document.getElementById('hud-audio')
-const hudSignal = document.getElementById('hud-signal')
-const hudScale = document.getElementById('hud-scale')
+const $ = (id) => document.getElementById(id)
+
+const video = $('video')
+const filterCanvas = $('filter-canvas')
+const overlay = $('overlay')
+const statusTitle = $('status-title')
+const statusDetail = $('status-detail')
+const statusSetup = $('status-setup')
+const overlayActions = $('overlay-actions')
+const connectBtn = $('connect')
+const downloadLink = $('download')
+const soundHint = $('sound-hint')
+const noSignalEl = $('no-signal')
+const flashEl = $('flash')
+const controls = $('controls')
+const profileSelect = $('profile')
+const scaleSeg = $('scale-seg')
+const filterSeg = $('filter-seg')
+const muteBtn = $('mute')
+const volume = $('volume')
+const screenshotBtn = $('screenshot')
+const recordBtn = $('record')
+const replayBtn = $('replay')
+const lowLatencyBtn = $('low-latency')
+const statsBtn = $('stats')
+const pipBtn = $('pip')
+const fullscreenBtn = $('fullscreen')
+const settingsBtn = $('settings-btn')
+const settingsSheet = $('settings')
+const deviceSelect = $('device')
+const resSelect = $('resolution')
+const fpsSelect = $('framerate')
+const profileName = $('profile-name')
+const audioDelay = $('audio-delay')
+const audioDelayValue = $('audio-delay-value')
+const micSelect = $('mic')
+const micLevel = $('mic-level')
+const replayToggle = $('replay-toggle')
+const lowLatencyToggle = $('low-latency-toggle')
+const controllerStatus = $('controller-status')
+const recIndicator = $('rec-indicator')
+const recTime = $('rec-time')
+const tipEl = $('tip')
+const toastsEl = $('toasts')
+const landing = $('landing')
+const demoVideo = $('demo-video')
+const hud = $('hud')
+const hudLatency = $('hud-latency')
+const hudFps = $('hud-fps')
+const hudDropped = $('hud-dropped')
+const hudAudio = $('hud-audio')
+const hudSignal = $('hud-signal')
+const hudScale = $('hud-scale')
+const hudMode = $('hud-mode')
 
 // Names and USB IDs that cheap HDMI to USB dongles usually report.
 // 345f and 534d are the vendor IDs of the MacroSilicon chips inside most of them.
@@ -54,24 +84,153 @@ const RESOLUTIONS = [
   ['720x480', '480p'],
   ['640x480', '640x480'],
 ]
+const resolutionLabel = (value) => RESOLUTIONS.find(([v]) => v === value)?.[1] || value
 const FRAME_RATES = [60, 50, 30]
 const SCALE_MODES = ['fit', 'stretch', 'integer', 'aspect43']
+const FILTER_ORDER = ['off', 'scanlines', 'crt']
 
 for (const [value, label] of RESOLUTIONS) resSelect.add(new Option(label, value))
 for (const fps of FRAME_RATES) fpsSelect.add(new Option(`${fps} fps`, String(fps)))
 
+// Saved settings
+
+function load(key, fallback) {
+  try {
+    const value = localStorage.getItem(key)
+    return value === null ? fallback : JSON.parse(value)
+  } catch {
+    return fallback
+  }
+}
+
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {}
+}
+
+function legacy(key) {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+// Settings that belong to a profile. Everything else is shared.
+const DEFAULT_PROFILE = {
+  resolution: legacy('resolution') || '1920x1080',
+  framerate: Number(legacy('framerate')) || 60,
+  scaling: legacy('scaling') || 'fit',
+  filter: 'off',
+  audioDelay: 0,
+}
+
+let profiles = load('cv.profiles', null) || { Default: { ...DEFAULT_PROFILE } }
+let activeProfile = load('cv.activeProfile', 'Default')
+if (!profiles[activeProfile]) activeProfile = Object.keys(profiles)[0]
+const deviceProfiles = load('cv.deviceProfiles', {})
+
+const prefs = {
+  volume: Number(legacy('volume')) || 1,
+  muted: false,
+  lowLatency: false,
+  replay: false,
+  stats: legacy('stats') === '1',
+  micId: '',
+  micLevel: 1,
+  videoDevice: legacy('videoDevice') || '',
+  ...load('cv.prefs', {}),
+}
+const savePrefs = () => save('cv.prefs', prefs)
+
+const profile = () => profiles[activeProfile]
+
+function setProfileValue(key, value) {
+  profile()[key] = value
+  save('cv.profiles', profiles)
+}
+
+// Live state
+
 let stream = null
+let currentDevice = null
 let audioCtx = null
 let gainNode = null
+let delayNode = null
+let recDest = null
+let hasGameAudio = false
+let micStream = null
+let micGain = null
+let recorder = null
+let recTimer = null
+let replay = null
 let statsOn = false
 let scaleText = ''
+let allowedToConnect = !isWeb
+
+const recType = pickRecordingType()
+const filters = new FilterRenderer(video, filterCanvas)
 
 // The download link only makes sense on the website, for Windows visitors
 const offerDownload = isWeb && isWindows
 
-function showStatus(title, detail = '', { connect = false, download = false } = {}) {
+// Toasts
+
+function toast(message, { action, duration = 3800 } = {}) {
+  const el = document.createElement('div')
+  el.className = 'toast'
+  const text = document.createElement('span')
+  text.textContent = message
+  el.append(text)
+  if (action) {
+    const btn = document.createElement('button')
+    btn.textContent = action.label
+    btn.onclick = () => {
+      action.run()
+      dismiss()
+    }
+    el.append(btn)
+  }
+  toastsEl.append(el)
+  while (toastsEl.children.length > 3) toastsEl.firstElementChild.remove()
+
+  function dismiss() {
+    el.classList.add('leaving')
+    setTimeout(() => el.remove(), 250)
+  }
+  setTimeout(dismiss, action ? duration + 2500 : duration)
+}
+
+// Troubleshooting tips, each shown at most once per session
+
+const dismissedTips = load('cv.dismissedTips', {})
+const shownTips = new Set()
+
+function showTip(id, title, text) {
+  if (dismissedTips[id] || shownTips.has(id) || !tipEl.classList.contains('hidden')) return
+  shownTips.add(id)
+  $('tip-title').textContent = title
+  $('tip-text').textContent = text
+  tipEl.classList.remove('hidden')
+  tipEl.dataset.id = id
+}
+
+$('tip-ok').onclick = () => tipEl.classList.add('hidden')
+$('tip-never').onclick = () => {
+  dismissedTips[tipEl.dataset.id] = true
+  save('cv.dismissedTips', dismissedTips)
+  tipEl.classList.add('hidden')
+}
+
+// Status screen
+
+const setupTemplate = $('setup-template')
+
+function showStatus(title, detail = '', { connect = false, download = false, setup = false } = {}) {
   statusTitle.textContent = title
   statusDetail.textContent = detail
+  statusSetup.replaceChildren(...(setup ? [setupTemplate.content.cloneNode(true)] : []))
   connectBtn.classList.toggle('hidden', !connect)
   downloadLink.classList.toggle('hidden', !(download && offerDownload))
   overlayActions.classList.toggle('hidden', !connect && !(download && offerDownload))
@@ -82,16 +241,22 @@ function hideStatus() {
   overlay.classList.add('hidden')
 }
 
-function stop() {
-  soundHint.classList.add('hidden')
-  if (stream) stream.getTracks().forEach((t) => t.stop())
-  if (audioCtx) audioCtx.close()
-  stream = null
-  audioCtx = null
-  gainNode = null
-  video.srcObject = null
-  latencySamples.length = 0
+// Website front page
+
+function showLanding({ back = false } = {}) {
+  $('landing-back').classList.toggle('hidden', !back)
+  $('landing-connect').classList.toggle('hidden', back)
+  landing.classList.remove('hidden')
+  landing.scrollTop = 0
+  if (!demoVideo.src) demoVideo.src = demoVideo.dataset.src
+  closeSettings()
 }
+
+function hideLanding() {
+  landing.classList.add('hidden')
+}
+
+// Devices
 
 async function getDevices() {
   let devices = await navigator.mediaDevices.enumerateDevices()
@@ -123,29 +288,49 @@ async function getDevices() {
   }
 }
 
+// The dongle's audio input shares a groupId with its video input
+function findDongleAudio(vid, audios) {
+  return (
+    audios.find(
+      (a) =>
+        a.groupId === vid.groupId && a.deviceId !== 'default' && a.deviceId !== 'communications'
+    ) || audios.find((a) => looksLikeCapture(a.label))
+  )
+}
+
 async function refreshDevices() {
   const { videos } = await getDevices()
-  const saved = localStorage.getItem('videoDevice')
 
   deviceSelect.innerHTML = ''
-
   // Placeholder so picking any real device counts as a change
   const placeholder = new Option('Choose a device', '')
   placeholder.disabled = true
   placeholder.selected = true
   deviceSelect.add(placeholder)
-
   for (const v of videos) deviceSelect.add(new Option(v.label || 'Unknown camera', v.deviceId))
 
   // Prefer the last used device, then anything that looks like a dongle.
   // Never auto-start the laptop webcam.
   const pick =
-    videos.find((v) => v.deviceId === saved) ||
+    videos.find((v) => v.deviceId === prefs.videoDevice) ||
     videos.find((v) => looksLikeCapture(v.label)) ||
     null
 
   if (pick) deviceSelect.value = pick.deviceId
   return pick
+}
+
+function fillMicList(audios, dongleAudio) {
+  micSelect.innerHTML = ''
+  micSelect.add(new Option('Off', ''))
+  for (const a of audios) {
+    if (a.deviceId === 'communications' || a.deviceId === dongleAudio?.deviceId) continue
+    if (dongleAudio && a.groupId === dongleAudio.groupId && a.deviceId === 'default') continue
+    micSelect.add(new Option(a.label || 'Microphone', a.deviceId))
+  }
+  micSelect.value = prefs.micId
+  if (micSelect.value !== prefs.micId) micSelect.value = ''
+  $('mic-level-row').classList.toggle('hidden', !micSelect.value)
 }
 
 // Grey out modes the dongle can't do, and move off one if it's selected
@@ -162,12 +347,20 @@ function applyCapabilities(track) {
   for (const opt of fpsSelect.options) {
     opt.disabled = Number(opt.value) > Math.round(maxFps)
   }
-
   for (const select of [resSelect, fpsSelect]) {
     if (select.selectedOptions[0]?.disabled) {
       const best = [...select.options].find((o) => !o.disabled)
       if (best) select.value = best.value
     }
+  }
+
+  // A dongle that can't reach 50 fps is often sitting in a USB 2 port
+  if (profile().framerate >= 50 && Number.isFinite(maxFps) && maxFps < 49) {
+    showTip(
+      'slow-dongle',
+      `Your dongle tops out at ${Math.round(maxFps)} fps`,
+      'HDMI dongles often slow down in a USB 2 port. Try a USB 3 port, usually blue or marked SS. If it is already in one, the dongle may be a USB 2 model.'
+    )
   }
 }
 
@@ -175,24 +368,31 @@ async function start(deviceId) {
   stop()
   showStatus('Connecting')
 
-  const [width, height] = resSelect.value.split('x').map(Number)
-  const frameRate = Number(fpsSelect.value)
   const { videos, audios } = await getDevices()
   const vid = videos.find((v) => v.deviceId === deviceId)
 
   if (!vid) {
-    showStatus('Capture device not found', 'Plug in your HDMI dongle and it will connect automatically.')
+    showStatus('Capture device not found', 'Plug in your HDMI dongle and it will connect automatically.', {
+      setup: true,
+      download: true,
+    })
     return
   }
 
-  // The dongle's audio input shares a groupId with its video input
-  const aud =
-    audios.find(
-      (a) =>
-        a.groupId === vid.groupId &&
-        a.deviceId !== 'default' &&
-        a.deviceId !== 'communications'
-    ) || audios.find((a) => looksLikeCapture(a.label))
+  // Each dongle brings back the profile it was last used with
+  const mapped = vid.label && deviceProfiles[vid.label]
+  if (mapped && profiles[mapped] && mapped !== activeProfile) {
+    activeProfile = mapped
+    save('cv.activeProfile', activeProfile)
+    applyProfileToUi()
+    toast(`Loaded your ${mapped} profile`)
+  }
+
+  const p = profile()
+  const [width, height] = p.resolution.split('x').map(Number)
+  const frameRate = p.framerate
+  const aud = findDongleAudio(vid, audios)
+  fillMicList(audios, aud)
 
   const audio = aud
     ? {
@@ -207,7 +407,7 @@ async function start(deviceId) {
 
   // For games, frame rate matters more than resolution. Start at the chosen
   // resolution and step down until the dongle offers the chosen frame rate.
-  const startIndex = Math.max(0, RESOLUTIONS.findIndex(([value]) => value === resSelect.value))
+  const startIndex = Math.max(0, RESOLUTIONS.findIndex(([value]) => value === p.resolution))
   const candidates = RESOLUTIONS.slice(startIndex).map(([value]) => value)
   let usedResolution = null
   let lastError = null
@@ -258,7 +458,9 @@ async function start(deviceId) {
         'Camera access is turned off',
         api?.platform === 'darwin'
           ? 'Your Mac treats the HDMI dongle as a camera. Open System Settings, go to Privacy & Security, and turn on Console Viewer under Camera and Microphone. Then reopen the app.'
-          : 'Turn on camera and microphone access for Console Viewer in your privacy settings, then reopen the app.'
+          : isWeb
+            ? 'Click the icon to the left of the address bar, allow the camera and microphone, then reload the page.'
+            : 'Turn on camera and microphone access for Console Viewer in your privacy settings, then reopen the app.'
       )
     } else {
       showStatus(
@@ -269,31 +471,59 @@ async function start(deviceId) {
     return
   }
 
+  currentDevice = vid
+  prefs.videoDevice = deviceId
+  savePrefs()
+  if (vid.label) {
+    deviceProfiles[vid.label] = activeProfile
+    save('cv.deviceProfiles', deviceProfiles)
+  }
+
   // Show the resolution that is actually running
-  if (usedResolution && usedResolution !== resSelect.value) {
-    resSelect.value = usedResolution
+  resSelect.value = usedResolution || p.resolution
+  fpsSelect.value = String(p.framerate)
+  if (usedResolution && usedResolution !== p.resolution) {
+    toast(
+      `Running at ${resolutionLabel(usedResolution)}, since your dongle doesn't offer ${p.framerate} fps at ${resolutionLabel(p.resolution)}`,
+      { duration: 6000 }
+    )
   }
 
-  localStorage.setItem('videoDevice', deviceId)
   video.srcObject = new MediaStream(stream.getVideoTracks())
-
-  if (aud) {
-    audioCtx = new AudioContext({ latencyHint: 'interactive' })
-    gainNode = audioCtx.createGain()
-    gainNode.gain.value = Number(volume.value)
-    audioCtx
-      .createMediaStreamSource(new MediaStream(stream.getAudioTracks()))
-      .connect(gainNode)
-      .connect(audioCtx.destination)
-    watchAudioState(audioCtx)
-  }
+  setupAudio()
 
   const track = stream.getVideoTracks()[0]
-  track.onended = () => showStatus('Capture device disconnected', 'Plug it back in to reconnect.')
+  track.onended = () => {
+    stop()
+    showStatus('Capture device disconnected', 'Plug it back in to reconnect.', { setup: true })
+  }
 
   applyCapabilities(track)
   hideStatus()
   layoutVideo()
+  startFrameLoop()
+  startMonitor()
+  startReplay()
+}
+
+function stop() {
+  if (recorder) finishRecording()
+  stopReplay()
+  stopFrameLoop()
+  stopMonitor()
+  stopMic()
+  setNoSignal(false)
+  soundHint.classList.add('hidden')
+  if (stream) stream.getTracks().forEach((t) => t.stop())
+  if (audioCtx) audioCtx.close()
+  stream = null
+  currentDevice = null
+  audioCtx = null
+  gainNode = null
+  delayNode = null
+  recDest = null
+  hasGameAudio = false
+  video.srcObject = null
 }
 
 async function autoConnect() {
@@ -304,15 +534,11 @@ async function autoConnect() {
   } else {
     showStatus(
       'No capture device found',
-      'Plug in your HDMI to USB dongle, or choose a device from the menu below.',
-      { download: true }
+      'Plug in your HDMI to USB dongle, or choose a device in settings.',
+      { setup: true, download: true }
     )
   }
 }
-
-// On the website, nothing touches the camera until the visitor asks,
-// unless they already allowed it on an earlier visit
-let allowedToConnect = !isWeb
 
 async function cameraAlreadyAllowed() {
   try {
@@ -323,17 +549,898 @@ async function cameraAlreadyAllowed() {
   }
 }
 
-function showWelcome() {
-  showStatus(
-    'Play your console in your browser',
-    'Plug your HDMI capture dongle into this computer, then connect it. Your browser will ask for camera and microphone access, because that is how it sees the dongle.',
-    { connect: true, download: true }
-  )
-}
-
-connectBtn.onclick = () => {
+function connectFromWeb() {
+  hideLanding()
   allowedToConnect = true
   autoConnect()
+}
+
+connectBtn.onclick = connectFromWeb
+$('landing-connect').onclick = connectFromWeb
+$('landing-back').onclick = hideLanding
+$('about-btn').onclick = () => showLanding({ back: true })
+
+// Audio
+// Game audio: dongle, sync delay, volume, speakers. Recordings tap in after
+// the sync delay so volume and mute never affect them. A microphone only
+// goes into recordings, never to the speakers.
+
+function setupAudio() {
+  audioCtx = new AudioContext({ latencyHint: 'interactive' })
+  recDest = audioCtx.createMediaStreamDestination()
+
+  const tracks = stream.getAudioTracks()
+  hasGameAudio = tracks.length > 0
+  if (hasGameAudio) {
+    delayNode = audioCtx.createDelay(1)
+    delayNode.delayTime.value = profile().audioDelay / 1000
+    gainNode = audioCtx.createGain()
+    audioCtx.createMediaStreamSource(new MediaStream(tracks)).connect(delayNode)
+    delayNode.connect(gainNode).connect(audioCtx.destination)
+    delayNode.connect(recDest)
+  }
+  applyVolume()
+  watchAudioState(audioCtx)
+  setupMic()
+}
+
+function applyVolume() {
+  if (gainNode) gainNode.gain.value = prefs.muted ? 0 : prefs.volume
+  volume.value = String(prefs.volume)
+  muteBtn.setAttribute('aria-pressed', String(prefs.muted))
+  muteBtn.querySelector('use').setAttribute('href', prefs.muted ? '#i-muted' : '#i-volume')
+  muteBtn.dataset.tip = prefs.muted ? 'Unmute (M)' : 'Mute (M)'
+}
+
+function toggleMute() {
+  prefs.muted = !prefs.muted
+  savePrefs()
+  applyVolume()
+}
+
+async function setupMic() {
+  stopMic()
+  if (!prefs.micId || !audioCtx) return
+  const ctx = audioCtx
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: { exact: prefs.micId },
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    })
+    // The capture may have restarted while we waited
+    if (ctx !== audioCtx) {
+      s.getTracks().forEach((t) => t.stop())
+      return
+    }
+    micStream = s
+    micGain = ctx.createGain()
+    micGain.gain.value = prefs.micLevel
+    ctx.createMediaStreamSource(micStream).connect(micGain).connect(recDest)
+  } catch {
+    toast("Couldn't open that microphone")
+  }
+}
+
+function stopMic() {
+  if (micStream) micStream.getTracks().forEach((t) => t.stop())
+  micStream = null
+  micGain = null
+}
+
+// Browsers keep audio paused until the visitor clicks or presses a key on the page.
+// Show a prompt until then, and resume on the first interaction.
+
+function watchAudioState(ctx) {
+  let wasRunning = ctx.state === 'running'
+  const update = () => {
+    if (ctx !== audioCtx) return
+    soundHint.classList.toggle('hidden', !(hasGameAudio && ctx.state === 'suspended'))
+    // Instant replay started before audio was allowed, so restart it with sound
+    if (ctx.state === 'running' && !wasRunning && replay) restartReplay()
+    wasRunning = ctx.state === 'running'
+  }
+  ctx.onstatechange = update
+  ctx.resume().catch(() => {})
+  update()
+}
+
+function resumeAudio() {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
+}
+
+window.addEventListener('pointerdown', resumeAudio)
+window.addEventListener('keydown', resumeAudio)
+soundHint.onclick = resumeAudio
+
+// Scaling and filters
+
+function setSeg(seg, value) {
+  for (const b of seg.querySelectorAll('button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.value === value))
+  }
+}
+
+function sizeFor(mode, winW, winH, srcW, srcH) {
+  if (mode === 'stretch') return { w: winW, h: winH, text: 'Stretch' }
+
+  // Squeeze the picture into a 4:3 box. Fixes retro consoles that come out stretched to 16:9.
+  if (mode === 'aspect43') {
+    const w = Math.floor(Math.min(winW, (winH * 4) / 3))
+    return { w, h: Math.floor((w * 3) / 4), text: '4:3' }
+  }
+
+  if (mode === 'integer') {
+    // Work in physical pixels so each source pixel becomes an exact block on screen
+    const dpr = window.devicePixelRatio || 1
+    const k = Math.floor(Math.min((winW * dpr) / srcW, (winH * dpr) / srcH))
+    if (k >= 1) return { w: (srcW * k) / dpr, h: (srcH * k) / dpr, text: `${k}x pixel perfect` }
+  }
+
+  const scale = Math.min(winW / srcW, winH / srcH)
+  const text = mode === 'integer' ? 'Fit (window smaller than signal)' : 'Fit'
+  return { w: srcW * scale, h: srcH * scale, text }
+}
+
+function layoutVideo() {
+  const mode = profile().scaling
+  const srcW = video.videoWidth
+  const srcH = video.videoHeight
+  const pixelated = mode === 'integer'
+
+  video.classList.toggle('pixelated', pixelated)
+  filterCanvas.classList.toggle('pixelated', pixelated)
+  filters.setSmooth(!pixelated)
+
+  if (!srcW || !srcH) {
+    scaleText = ''
+    video.style.width = '100%'
+    video.style.height = '100%'
+    video.style.objectFit = 'contain'
+    return
+  }
+
+  const { w, h, text } = sizeFor(mode, window.innerWidth, window.innerHeight, srcW, srcH)
+  scaleText = text
+  video.style.width = `${w}px`
+  video.style.height = `${h}px`
+  video.style.objectFit = 'fill'
+  if (filters.active) filters.resize(w, h)
+}
+
+window.addEventListener('resize', layoutVideo)
+video.addEventListener('loadedmetadata', layoutVideo)
+video.addEventListener('resize', layoutVideo)
+
+function setScaling(mode) {
+  setProfileValue('scaling', mode)
+  setSeg(scaleSeg, mode)
+  layoutVideo()
+}
+
+function cycleScaling() {
+  const i = SCALE_MODES.indexOf(profile().scaling)
+  setScaling(SCALE_MODES[(i + 1) % SCALE_MODES.length])
+  toast(`Scaling: ${scaleText || profile().scaling}`, { duration: 1500 })
+}
+
+function applyFilter() {
+  const name = prefs.lowLatency ? 'off' : profile().filter
+  filters.setFilter(name)
+  setSeg(filterSeg, profile().filter)
+  filterSeg.classList.toggle('dimmed', prefs.lowLatency)
+  layoutVideo()
+}
+
+function setFilter(name) {
+  if (name !== 'off' && !filters.supported) {
+    toast("Filters need WebGL, which isn't available on this computer")
+    return
+  }
+  setProfileValue('filter', name)
+  if (prefs.lowLatency && name !== 'off') {
+    setLowLatency(false)
+    toast('Low latency mode is off so the filter can run')
+  }
+  applyFilter()
+}
+
+function cycleFilter() {
+  const i = FILTER_ORDER.indexOf(profile().filter)
+  const next = FILTER_ORDER[(i + 1) % FILTER_ORDER.length]
+  setFilter(next)
+  toast(`Filter: ${FILTERS[next].label === 'Off' ? 'Clean' : FILTERS[next].label}`, { duration: 1500 })
+}
+
+scaleSeg.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-value]')
+  if (b) setScaling(b.dataset.value)
+})
+
+filterSeg.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-value]')
+  if (b) setFilter(b.dataset.value)
+})
+
+// Low latency mode
+
+function setLowLatency(on, { announce = false } = {}) {
+  prefs.lowLatency = on
+  savePrefs()
+  lowLatencyBtn.setAttribute('aria-pressed', String(on))
+  lowLatencyToggle.checked = on
+  applyFilter()
+  if (on) stopReplay()
+  else startReplay()
+  if (announce) {
+    toast(
+      on
+        ? 'Low latency mode on. Filters and instant replay are paused.'
+        : 'Low latency mode off'
+    )
+  }
+}
+
+lowLatencyBtn.onclick = () => setLowLatency(!prefs.lowLatency, { announce: true })
+lowLatencyToggle.onchange = () => setLowLatency(lowLatencyToggle.checked, { announce: true })
+
+// Frames, delay and stats
+
+const latencySamples = []
+const frameTimes = []
+let frameCallbackId = null
+
+function onFrame(now, meta) {
+  frameTimes.push(now)
+  while (frameTimes.length && now - frameTimes[0] > 1000) frameTimes.shift()
+
+  // captureTime is when this computer received the frame from the dongle.
+  // A filter draws the frame again, which usually costs one more screen refresh.
+  if (typeof meta.captureTime === 'number') {
+    const ms = meta.expectedDisplayTime - meta.captureTime + (filters.active ? 1000 / 60 : 0)
+    if (ms > 0 && ms < 1000) {
+      latencySamples.push(ms)
+      if (latencySamples.length > 60) latencySamples.shift()
+    }
+  }
+
+  frameCallbackId = video.requestVideoFrameCallback(onFrame)
+}
+
+function startFrameLoop() {
+  if (frameCallbackId !== null || !('requestVideoFrameCallback' in video)) return
+  frameCallbackId = video.requestVideoFrameCallback(onFrame)
+}
+
+function stopFrameLoop() {
+  if (frameCallbackId !== null) video.cancelVideoFrameCallback(frameCallbackId)
+  frameCallbackId = null
+  frameTimes.length = 0
+  latencySamples.length = 0
+}
+
+function currentFps() {
+  const now = performance.now()
+  return frameTimes.filter((t) => now - t <= 1000).length
+}
+
+function renderHud() {
+  hudFps.textContent = stream ? `${currentFps()} fps` : '--'
+
+  if (latencySamples.length) {
+    const avg = latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length
+    hudLatency.textContent = `${Math.round(avg)} ms`
+    hudLatency.className = avg < 50 ? 'good' : avg < 90 ? 'ok' : 'bad'
+  } else {
+    hudLatency.textContent = 'n/a'
+    hudLatency.className = ''
+  }
+
+  const quality = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null
+  hudDropped.textContent = quality && stream ? String(quality.droppedVideoFrames) : '--'
+
+  hudAudio.textContent =
+    audioCtx && hasGameAudio
+      ? `${Math.round((audioCtx.baseLatency + (audioCtx.outputLatency || 0)) * 1000 + profile().audioDelay)} ms`
+      : 'No audio'
+
+  const track = stream?.getVideoTracks()[0]
+  if (track) {
+    const s = track.getSettings()
+    hudSignal.textContent = `${s.width}x${s.height} at ${Math.round(s.frameRate)} fps`
+  } else {
+    hudSignal.textContent = '--'
+  }
+
+  hudScale.textContent = scaleText || '--'
+
+  const mode = [prefs.lowLatency ? 'Low latency' : 'Normal']
+  if (filters.active) mode.push(`${FILTERS[filters.filter].label} filter`)
+  if (replay) mode.push('replay on')
+  hudMode.textContent = mode.join(', ')
+}
+
+function setStats(on) {
+  statsOn = on
+  hud.classList.toggle('hidden', !on)
+  statsBtn.setAttribute('aria-pressed', String(on))
+  prefs.stats = on
+  savePrefs()
+  if (on) renderHud()
+}
+
+setInterval(() => {
+  if (statsOn) renderHud()
+}, 250)
+
+// Watches the signal and offers help when something looks wrong
+
+const probe = document.createElement('canvas')
+probe.width = 64
+probe.height = 36
+// Scaling down happens on the graphics card, so only a tiny image is read back
+const probeCtx = probe.getContext('2d')
+let monitorTimer = null
+let darkSeconds = 0
+let slowSeconds = 0
+let droppedHistory = []
+
+function isPictureBlack() {
+  if (video.readyState < 2 || !video.videoWidth) return true
+  try {
+    probeCtx.drawImage(video, 0, 0, probe.width, probe.height)
+    const data = probeCtx.getImageData(0, 0, probe.width, probe.height).data
+    let brightest = 0
+    for (let i = 0; i < data.length; i += 4) {
+      brightest = Math.max(brightest, (data[i] + data[i + 1] + data[i + 2]) / 3)
+    }
+    return brightest < 24
+  } catch {
+    return false
+  }
+}
+
+function setNoSignal(on) {
+  noSignalEl.classList.toggle('hidden', !on)
+}
+
+function checkSignal() {
+  if (!stream) return
+  const fps = currentFps()
+  const noPicture = fps === 0 || isPictureBlack()
+
+  darkSeconds = noPicture ? darkSeconds + 1 : 0
+  setNoSignal(darkSeconds >= 4)
+  if (noPicture) return
+
+  // Frame rate well under what the dongle says it is sending
+  const target = stream.getVideoTracks()[0]?.getSettings().frameRate || 0
+  slowSeconds = target >= 25 && fps < target * 0.75 ? slowSeconds + 1 : 0
+  if (slowSeconds >= 8) {
+    showTip(
+      'low-fps',
+      `Running at ${fps} fps instead of ${Math.round(target)}`,
+      "Try a USB 3 port, set your console's video output to 1080p, or pick a lower resolution in settings. Closing other apps that use the camera can help too."
+    )
+  }
+
+  // More than 30 dropped frames in 10 seconds
+  const quality = video.getVideoPlaybackQuality?.()
+  if (quality) {
+    droppedHistory.push(quality.droppedVideoFrames)
+    if (droppedHistory.length > 10) droppedHistory.shift()
+    if (droppedHistory.length === 10 && droppedHistory[9] - droppedHistory[0] > 30) {
+      showTip(
+        'dropped',
+        'Frames are being dropped',
+        'Your computer is falling behind drawing the picture. Turn off retro filters and instant replay, or try low latency mode with G.'
+      )
+    }
+  }
+}
+
+function startMonitor() {
+  stopMonitor()
+  monitorTimer = setInterval(checkSignal, 1000)
+}
+
+function stopMonitor() {
+  clearInterval(monitorTimer)
+  monitorTimer = null
+  darkSeconds = 0
+  slowSeconds = 0
+  droppedHistory = []
+}
+
+// Screenshots, recording and instant replay
+
+function stamp() {
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+}
+
+// Desktop app: straight to Pictures or Videos. Website: a normal download.
+async function saveCapture(kind, blob, ext) {
+  if (api?.saveCapture) {
+    try {
+      return { file: await api.saveCapture(kind, ext, await blob.arrayBuffer()) }
+    } catch (err) {
+      toast(`Couldn't save: ${err.message}`)
+      return null
+    }
+  }
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `console-viewer-${kind}-${stamp()}.${ext}`
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  return { downloaded: true }
+}
+
+function savedToast(result, message, folder) {
+  if (result.file) {
+    toast(`${message} to ${folder}`, {
+      action: { label: 'Show in folder', run: () => api.revealFile(result.file) },
+    })
+  } else {
+    toast(`${message} to your Downloads`)
+  }
+}
+
+function needsStream() {
+  if (stream && video.videoWidth) return true
+  toast('Connect your console first')
+  return false
+}
+
+async function takeScreenshot() {
+  if (!needsStream()) return
+  flashEl.classList.remove('go')
+  void flashEl.offsetWidth
+  flashEl.classList.add('go')
+
+  const blob = await captureFrame(video)
+  let copied = false
+  try {
+    if (api?.copyImage) {
+      copied = await api.copyImage(await blob.arrayBuffer())
+    } else if (navigator.clipboard?.write && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      copied = true
+    }
+  } catch {}
+
+  const result = await saveCapture('screenshot', blob, 'png')
+  if (result) savedToast(result, copied ? 'Screenshot copied and saved' : 'Screenshot saved', 'Pictures')
+}
+
+// Video for recordings: the clean picture plus game audio and any microphone.
+// Audio only joins once the browser has allowed sound to play.
+function recordingStream() {
+  const tracks = [...stream.getVideoTracks()]
+  if (audioCtx?.state === 'running' && recDest) tracks.push(...recDest.stream.getAudioTracks())
+  return new MediaStream(tracks)
+}
+
+function formatTime(ms) {
+  const s = Math.floor(ms / 1000)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+function toggleRecording() {
+  if (recorder) {
+    finishRecording()
+    return
+  }
+  if (!needsStream()) return
+  if (!recType) {
+    toast("This browser can't record video")
+    return
+  }
+  try {
+    recorder = new Recorder(recordingStream(), recType, recordingBitrate(stream.getVideoTracks()[0], false))
+    recorder.start()
+  } catch (err) {
+    recorder = null
+    toast(`Couldn't start recording: ${err.message}`)
+    return
+  }
+  recordBtn.setAttribute('aria-pressed', 'true')
+  recordBtn.dataset.tip = 'Stop recording (R)'
+  recIndicator.classList.remove('hidden')
+  recTime.textContent = '0:00'
+  recTimer = setInterval(() => {
+    if (recorder) recTime.textContent = formatTime(recorder.elapsed)
+  }, 500)
+}
+
+async function finishRecording() {
+  const r = recorder
+  recorder = null
+  clearInterval(recTimer)
+  recordBtn.setAttribute('aria-pressed', 'false')
+  recordBtn.dataset.tip = 'Record (R)'
+  recIndicator.classList.add('hidden')
+
+  const blob = await r.stop()
+  if (!blob.size) return
+  const result = await saveCapture('video', blob, recordingExt(recType))
+  if (result) savedToast(result, 'Recording saved', 'Videos')
+}
+
+function startReplay() {
+  updateReplayButton()
+  if (replay || !stream || !recType || !prefs.replay || prefs.lowLatency) return
+  try {
+    replay = new ReplayBuffer(
+      recordingStream(),
+      recType,
+      recordingBitrate(stream.getVideoTracks()[0], true)
+    )
+    replay.start()
+  } catch (err) {
+    replay = null
+    console.warn('Instant replay could not start', err)
+  }
+  updateReplayButton()
+}
+
+function stopReplay() {
+  if (replay) replay.stop()
+  replay = null
+  updateReplayButton()
+}
+
+function restartReplay() {
+  stopReplay()
+  startReplay()
+}
+
+function updateReplayButton() {
+  replayBtn.classList.toggle('armed', Boolean(replay))
+  replayBtn.dataset.tip = prefs.replay
+    ? 'Save the last 30 seconds (V)'
+    : 'Turn on instant replay (V)'
+}
+
+function setReplay(on) {
+  prefs.replay = on
+  savePrefs()
+  replayToggle.checked = on
+  if (on) startReplay()
+  else stopReplay()
+}
+
+async function saveReplay() {
+  if (!needsStream()) return
+  if (!recType) {
+    toast("This browser can't record video")
+    return
+  }
+  if (prefs.lowLatency) {
+    toast('Instant replay is paused in low latency mode. Press G to turn it off.')
+    return
+  }
+  if (!prefs.replay || !replay) {
+    setReplay(true)
+    toast('Instant replay is on. From now on, press V to save the last 30 seconds.', { duration: 5000 })
+    return
+  }
+  const seconds = Math.round(replay.available)
+  if (seconds < 3) {
+    toast('Instant replay is still filling up')
+    return
+  }
+  const blob = await replay.save()
+  if (!blob || !blob.size) {
+    toast("Couldn't save the replay")
+    return
+  }
+  const result = await saveCapture('video', blob, recordingExt(recType))
+  if (result) savedToast(result, `Saved the last ${seconds} seconds`, 'Videos')
+}
+
+screenshotBtn.onclick = takeScreenshot
+recordBtn.onclick = toggleRecording
+replayBtn.onclick = saveReplay
+replayToggle.onchange = () => setReplay(replayToggle.checked)
+
+// Picture in picture
+
+async function togglePip() {
+  try {
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture()
+    } else if (stream) {
+      await video.requestPictureInPicture()
+    }
+  } catch (err) {
+    console.warn('Picture in picture failed', err)
+  }
+}
+
+video.addEventListener('enterpictureinpicture', () => pipBtn.setAttribute('aria-pressed', 'true'))
+video.addEventListener('leavepictureinpicture', () => pipBtn.setAttribute('aria-pressed', 'false'))
+
+// Full screen
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen()
+  } else {
+    // A controller press doesn't count as a click, so browsers may refuse
+    document.documentElement.requestFullscreen().catch(() => toast('Press F to go full screen'))
+  }
+}
+
+// Settings panel
+
+function openSettings() {
+  settingsSheet.classList.add('open')
+  settingsSheet.setAttribute('aria-hidden', 'false')
+  settingsBtn.setAttribute('aria-expanded', 'true')
+  wake()
+}
+
+function closeSettings() {
+  settingsSheet.classList.remove('open')
+  settingsSheet.setAttribute('aria-hidden', 'true')
+  settingsBtn.setAttribute('aria-expanded', 'false')
+}
+
+const settingsOpen = () => settingsSheet.classList.contains('open')
+
+settingsBtn.onclick = () => (settingsOpen() ? closeSettings() : openSettings())
+$('settings-close').onclick = closeSettings
+
+deviceSelect.onchange = () => start(deviceSelect.value)
+
+resSelect.onchange = () => {
+  setProfileValue('resolution', resSelect.value)
+  if (currentDevice) start(currentDevice.deviceId)
+}
+
+fpsSelect.onchange = () => {
+  setProfileValue('framerate', Number(fpsSelect.value))
+  if (currentDevice) start(currentDevice.deviceId)
+}
+
+audioDelay.oninput = () => {
+  const ms = Number(audioDelay.value)
+  setProfileValue('audioDelay', ms)
+  audioDelayValue.textContent = `${ms} ms`
+  if (delayNode) delayNode.delayTime.value = ms / 1000
+}
+
+volume.oninput = () => {
+  prefs.volume = Number(volume.value)
+  if (prefs.muted && prefs.volume > 0) prefs.muted = false
+  savePrefs()
+  applyVolume()
+}
+
+muteBtn.onclick = toggleMute
+
+micSelect.onchange = () => {
+  prefs.micId = micSelect.value
+  savePrefs()
+  $('mic-level-row').classList.toggle('hidden', !micSelect.value)
+  setupMic()
+}
+
+micLevel.oninput = () => {
+  prefs.micLevel = Number(micLevel.value)
+  savePrefs()
+  if (micGain) micGain.gain.value = prefs.micLevel
+}
+
+// Profiles
+
+function renderProfiles() {
+  profileSelect.innerHTML = ''
+  for (const name of Object.keys(profiles)) profileSelect.add(new Option(name, name))
+  profileSelect.value = activeProfile
+  $('profile-delete').disabled = Object.keys(profiles).length <= 1
+}
+
+function applyProfileToUi() {
+  const p = profile()
+  renderProfiles()
+  resSelect.value = p.resolution
+  fpsSelect.value = String(p.framerate)
+  setSeg(scaleSeg, p.scaling)
+  audioDelay.value = String(p.audioDelay)
+  audioDelayValue.textContent = `${p.audioDelay} ms`
+  if (delayNode) delayNode.delayTime.value = p.audioDelay / 1000
+  applyFilter()
+}
+
+function switchProfile(name) {
+  if (!profiles[name] || name === activeProfile) return
+  const before = { ...profile() }
+  activeProfile = name
+  save('cv.activeProfile', activeProfile)
+  if (currentDevice?.label) {
+    deviceProfiles[currentDevice.label] = name
+    save('cv.deviceProfiles', deviceProfiles)
+  }
+  applyProfileToUi()
+  const p = profile()
+  if (currentDevice && (before.resolution !== p.resolution || before.framerate !== p.framerate)) {
+    start(currentDevice.deviceId)
+  }
+}
+
+profileSelect.onchange = () => switchProfile(profileSelect.value)
+
+$('profile-save').onclick = () => {
+  const name = profileName.value.trim()
+  if (!name) {
+    toast('Give the profile a name first')
+    profileName.focus()
+    return
+  }
+  if (profiles[name]) {
+    toast('A profile with that name already exists')
+    return
+  }
+  profiles[name] = { ...profile() }
+  save('cv.profiles', profiles)
+  profileName.value = ''
+  switchProfile(name)
+  toast(`Saved your ${name} profile`)
+}
+
+profileName.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('profile-save').click()
+})
+
+$('profile-delete').onclick = () => {
+  const names = Object.keys(profiles)
+  if (names.length <= 1) return
+  const gone = activeProfile
+  const next = names.find((n) => n !== gone)
+  switchProfile(next)
+  delete profiles[gone]
+  for (const [label, name] of Object.entries(deviceProfiles)) {
+    if (name === gone) delete deviceProfiles[label]
+  }
+  save('cv.profiles', profiles)
+  save('cv.deviceProfiles', deviceProfiles)
+  renderProfiles()
+  toast(`Deleted the ${gone} profile`)
+}
+
+// Controller connected to this computer. Hold Select and press a button.
+
+const PAD_SELECT = 8
+const PAD_ACTIONS = {
+  0: takeScreenshot,
+  1: toggleRecording,
+  2: saveReplay,
+  3: toggleFullscreen,
+  4: cycleScaling,
+  5: cycleFilter,
+  9: () => setStats(!statsOn),
+}
+const padPrevious = {}
+let padLoop = null
+
+function pollPads() {
+  let any = false
+  for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
+    if (!pad) continue
+    any = true
+    const pressed = pad.buttons.map((b) => b.pressed)
+    const before = padPrevious[pad.index] || []
+    if (pressed[PAD_SELECT]) {
+      for (const [index, action] of Object.entries(PAD_ACTIONS)) {
+        if (pressed[index] && !before[index]) {
+          wake()
+          action()
+        }
+      }
+    }
+    padPrevious[pad.index] = pressed
+  }
+  padLoop = any ? requestAnimationFrame(pollPads) : null
+}
+
+function describePads() {
+  const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean)
+  controllerStatus.textContent = pads.length
+    ? `Connected: ${pads.map((p) => p.id.replace(/\s*\(.*\)\s*$/, '')).join(', ')}`
+    : 'Plug a controller into this computer and press any button.'
+}
+
+window.addEventListener('gamepadconnected', () => {
+  describePads()
+  toast('Controller connected. Hold Select and press A for a screenshot.', { duration: 5000 })
+  if (!padLoop) padLoop = requestAnimationFrame(pollPads)
+})
+
+window.addEventListener('gamepaddisconnected', describePads)
+
+// Keyboard
+
+const KEY_ACTIONS = {
+  f: toggleFullscreen,
+  p: togglePip,
+  l: () => setStats(!statsOn),
+  s: cycleScaling,
+  e: cycleFilter,
+  c: takeScreenshot,
+  r: toggleRecording,
+  v: saveReplay,
+  m: toggleMute,
+  g: () => setLowLatency(!prefs.lowLatency, { announce: true }),
+  o: () => (settingsOpen() ? closeSettings() : openSettings()),
+}
+
+window.addEventListener('keydown', (e) => {
+  wake()
+  if (e.key === 'F11') {
+    e.preventDefault()
+    toggleFullscreen()
+    return
+  }
+  if (e.key === 'Escape' && settingsOpen()) {
+    closeSettings()
+    return
+  }
+
+  // Leave letter keys alone while typing, using a menu, or reading the front page
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
+  const el = document.activeElement
+  if (el?.tagName === 'SELECT' || (el?.tagName === 'INPUT' && el.type === 'text')) return
+  if (!landing.classList.contains('hidden')) return
+
+  const action = KEY_ACTIONS[e.key.toLowerCase()]
+  if (action) {
+    e.preventDefault()
+    action()
+  }
+})
+
+pipBtn.onclick = togglePip
+statsBtn.onclick = () => setStats(!statsOn)
+fullscreenBtn.onclick = toggleFullscreen
+$('stage').ondblclick = toggleFullscreen
+
+// Hide the controls and cursor after a few seconds without mouse movement,
+// unless settings are open or the pointer is on the controls
+let idleTimer
+let pointerOnControls = false
+
+function wake() {
+  document.body.classList.remove('idle')
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => {
+    if (!settingsOpen() && !pointerOnControls) document.body.classList.add('idle')
+    else wake()
+  }, 2500)
+}
+
+window.addEventListener('mousemove', wake)
+controls.addEventListener('pointerenter', () => (pointerOnControls = true))
+controls.addEventListener('pointerleave', () => (pointerOnControls = false))
+wake()
+
+// Reconnect when a USB device is plugged in or removed
+let changeTimer
+if (navigator.mediaDevices) {
+  navigator.mediaDevices.ondevicechange = () => {
+    if (!allowedToConnect) return
+    clearTimeout(changeTimer)
+    changeTimer = setTimeout(autoConnect, 500)
+  }
 }
 
 // Windows app button
@@ -368,6 +1475,7 @@ function openOrDownloadApp(event) {
     if (handedOff) {
       // Free the dongle so the desktop app can open it
       stop()
+      hideLanding()
       showStatus(
         'Opened in the Windows app',
         'The capture device was released so the app can use it. To keep watching here instead, close the app and reconnect.',
@@ -379,265 +1487,40 @@ function openOrDownloadApp(event) {
   }, HANDOFF_WAIT_MS)
 }
 
-getAppLink.addEventListener('click', openOrDownloadApp)
-downloadLink.addEventListener('click', openOrDownloadApp)
-
-// Browsers keep audio paused until the visitor clicks or presses a key on the page.
-// Show a prompt until then, and resume on the first interaction.
-
-function watchAudioState(ctx) {
-  const update = () => soundHint.classList.toggle('hidden', ctx.state !== 'suspended')
-  ctx.onstatechange = update
-  ctx.resume().catch(() => {})
-  update()
+for (const link of document.querySelectorAll('.js-get-app')) {
+  link.addEventListener('click', openOrDownloadApp)
+  if (offerDownload && link !== downloadLink) link.classList.remove('hidden')
 }
 
-function resumeAudio() {
-  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
-}
-
-window.addEventListener('pointerdown', resumeAudio)
-window.addEventListener('keydown', resumeAudio)
-soundHint.onclick = resumeAudio
-
-// Scaling
-
-function setVideoSize(width, height, fit) {
-  video.style.width = width
-  video.style.height = height
-  video.style.objectFit = fit
-}
-
-function layoutVideo() {
-  const mode = scaleSelect.value
-  const winW = window.innerWidth
-  const winH = window.innerHeight
-  const srcW = video.videoWidth
-  const srcH = video.videoHeight
-
-  video.classList.toggle('pixelated', mode === 'integer')
-
-  if (mode === 'stretch') {
-    scaleText = 'Stretch'
-    setVideoSize('100%', '100%', 'fill')
-    return
-  }
-
-  // Squeeze the picture into a 4:3 box. Fixes retro consoles that come out stretched to 16:9.
-  if (mode === 'aspect43') {
-    const w = Math.floor(Math.min(winW, (winH * 4) / 3))
-    scaleText = '4:3'
-    setVideoSize(`${w}px`, `${Math.floor((w * 3) / 4)}px`, 'fill')
-    return
-  }
-
-  if (mode === 'integer' && srcW && srcH) {
-    // Work in physical pixels so each source pixel becomes an exact block on screen
-    const dpr = window.devicePixelRatio || 1
-    const k = Math.floor(Math.min((winW * dpr) / srcW, (winH * dpr) / srcH))
-    if (k >= 1) {
-      scaleText = `${k}x pixel perfect`
-      setVideoSize(`${(srcW * k) / dpr}px`, `${(srcH * k) / dpr}px`, 'fill')
-      return
-    }
-    scaleText = 'Fit (window smaller than signal)'
-    setVideoSize('100%', '100%', 'contain')
-    return
-  }
-
-  scaleText = 'Fit'
-  setVideoSize('100%', '100%', 'contain')
-}
-
-window.addEventListener('resize', layoutVideo)
-video.addEventListener('loadedmetadata', layoutVideo)
-video.addEventListener('resize', layoutVideo)
-
-// Stats and latency
-
-const latencySamples = []
-const frameTimes = []
-let frameCallbackId = null
-
-function onFrame(now, meta) {
-  frameTimes.push(now)
-
-  // captureTime is when this computer received the frame from the dongle
-  if (typeof meta.captureTime === 'number') {
-    const ms = meta.expectedDisplayTime - meta.captureTime
-    if (ms > 0 && ms < 1000) {
-      latencySamples.push(ms)
-      if (latencySamples.length > 60) latencySamples.shift()
-    }
-  }
-
-  frameCallbackId = video.requestVideoFrameCallback(onFrame)
-}
-
-function renderHud() {
-  const now = performance.now()
-  while (frameTimes.length && now - frameTimes[0] > 1000) frameTimes.shift()
-
-  hudFps.textContent = stream ? `${frameTimes.length} fps` : '--'
-
-  if (latencySamples.length) {
-    const avg = latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length
-    hudLatency.textContent = `${Math.round(avg)} ms`
-    hudLatency.className = avg < 50 ? 'good' : avg < 90 ? 'ok' : 'bad'
-  } else {
-    hudLatency.textContent = 'n/a'
-    hudLatency.className = ''
-  }
-
-  const quality = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null
-  hudDropped.textContent = quality && stream ? String(quality.droppedVideoFrames) : '--'
-
-  hudAudio.textContent = audioCtx
-    ? `${Math.round((audioCtx.baseLatency + (audioCtx.outputLatency || 0)) * 1000)} ms`
-    : 'No audio'
-
-  const track = stream?.getVideoTracks()[0]
-  if (track) {
-    const s = track.getSettings()
-    hudSignal.textContent = `${s.width}x${s.height} at ${Math.round(s.frameRate)} fps`
-  } else {
-    hudSignal.textContent = '--'
-  }
-
-  hudScale.textContent = scaleText || '--'
-}
-
-function setStats(on) {
-  statsOn = on
-  hud.classList.toggle('hidden', !on)
-  statsBtn.setAttribute('aria-pressed', String(on))
-  localStorage.setItem('stats', on ? '1' : '0')
-
-  if (!('requestVideoFrameCallback' in video)) return
-  if (on && frameCallbackId === null) {
-    frameCallbackId = video.requestVideoFrameCallback(onFrame)
-  } else if (!on && frameCallbackId !== null) {
-    video.cancelVideoFrameCallback(frameCallbackId)
-    frameCallbackId = null
-    frameTimes.length = 0
-    latencySamples.length = 0
-  }
-  if (on) renderHud()
-}
-
-setInterval(() => {
-  if (statsOn) renderHud()
-}, 250)
-
-// Picture in picture
-
-async function togglePip() {
-  try {
-    if (document.pictureInPictureElement) {
-      await document.exitPictureInPicture()
-    } else if (stream) {
-      await video.requestPictureInPicture()
-    }
-  } catch (err) {
-    console.warn('Picture in picture failed', err)
-  }
-}
-
-video.addEventListener('enterpictureinpicture', () => pipBtn.setAttribute('aria-pressed', 'true'))
-video.addEventListener('leavepictureinpicture', () => pipBtn.setAttribute('aria-pressed', 'false'))
-
-// Controls
-
-deviceSelect.onchange = () => start(deviceSelect.value)
-
-resSelect.onchange = () => {
-  localStorage.setItem('resolution', resSelect.value)
-  if (deviceSelect.value) start(deviceSelect.value)
-}
-
-fpsSelect.onchange = () => {
-  localStorage.setItem('framerate', fpsSelect.value)
-  if (deviceSelect.value) start(deviceSelect.value)
-}
-
-scaleSelect.onchange = () => {
-  localStorage.setItem('scaling', scaleSelect.value)
-  layoutVideo()
-}
-
-volume.oninput = () => {
-  if (gainNode) gainNode.gain.value = Number(volume.value)
-  localStorage.setItem('volume', volume.value)
-}
-
-function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen()
-  else document.documentElement.requestFullscreen()
-}
-
-function cycleScaling() {
-  const next = SCALE_MODES[(SCALE_MODES.indexOf(scaleSelect.value) + 1) % SCALE_MODES.length]
-  scaleSelect.value = next
-  scaleSelect.onchange()
-}
-
-pipBtn.onclick = togglePip
-statsBtn.onclick = () => setStats(!statsOn)
-fullscreenBtn.onclick = toggleFullscreen
-video.ondblclick = toggleFullscreen
-
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'F11') {
-    e.preventDefault()
-    toggleFullscreen()
-    return
-  }
-
-  // Leave letter keys alone while a menu or slider has focus
-  if (e.ctrlKey || e.metaKey || e.altKey) return
-  if (['SELECT', 'INPUT'].includes(document.activeElement?.tagName)) return
-
-  const key = e.key.toLowerCase()
-  if (key === 'f') toggleFullscreen()
-  else if (key === 'p') togglePip()
-  else if (key === 'l') setStats(!statsOn)
-  else if (key === 's') cycleScaling()
+// Front page demo: a real clip at media/demo.mp4 replaces the drawing
+demoVideo.addEventListener('loadeddata', () => {
+  demoVideo.classList.remove('hidden')
+  $('demo-fallback').classList.add('hidden')
 })
 
-// Hide the controls and cursor after a few seconds without mouse movement
-let idleTimer
-function wake() {
-  document.body.classList.remove('idle')
-  clearTimeout(idleTimer)
-  idleTimer = setTimeout(() => document.body.classList.add('idle'), 2500)
-}
-window.addEventListener('mousemove', wake)
-wake()
+// Start up
 
-// Reconnect when a USB device is plugged in or removed
-let changeTimer
-if (navigator.mediaDevices) {
-  navigator.mediaDevices.ondevicechange = () => {
-    if (!allowedToConnect) return
-    clearTimeout(changeTimer)
-    changeTimer = setTimeout(autoConnect, 500)
-  }
+document.body.classList.add(isWeb ? 'is-web' : 'is-app')
+$('landing-setup').append(setupTemplate.content.cloneNode(true))
+$('save-location').textContent = api
+  ? 'Screenshots go to Pictures and recordings go to Videos, each in a Console Viewer folder.'
+  : 'Screenshots and recordings go to your Downloads folder.'
+
+if (!document.pictureInPictureEnabled) pipBtn.classList.add('hidden')
+if (!recType) {
+  recordBtn.disabled = true
+  replayBtn.disabled = true
 }
 
-// Restore saved settings and connect
-function restore(select, key, fallback) {
-  select.value = localStorage.getItem(key) || fallback
-  if (!select.value) select.value = fallback
-}
-restore(resSelect, 'resolution', '1920x1080')
-restore(fpsSelect, 'framerate', '60')
-restore(scaleSelect, 'scaling', 'fit')
-volume.value = localStorage.getItem('volume') || '1'
-
-if (!document.pictureInPictureEnabled) pipBtn.hidden = true
-
-setStats(localStorage.getItem('stats') === '1')
-if (offerDownload) getAppLink.classList.remove('hidden')
+micLevel.value = String(prefs.micLevel)
+replayToggle.checked = prefs.replay
+lowLatencyToggle.checked = prefs.lowLatency
+lowLatencyBtn.setAttribute('aria-pressed', String(prefs.lowLatency))
+applyProfileToUi()
+applyVolume()
+updateReplayButton()
+setStats(prefs.stats)
+describePads()
 
 // Lets the website work offline and be installed as an app
 if (isWeb && 'serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -651,11 +1534,13 @@ async function init() {
       'Use the latest Chrome or Edge, and make sure the page address starts with https.',
       { download: true }
     )
+    if (isWeb) showLanding()
     return
   }
 
   if (isWeb && !(await cameraAlreadyAllowed())) {
-    showWelcome()
+    showStatus('Connect your capture device', '', { connect: true, setup: true, download: true })
+    showLanding()
     return
   }
 

@@ -1,71 +1,458 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Play your game console on your laptop screen with a USB HDMI capture dongle." />
-    <meta name="theme-color" content="#000000" />
+    <title>Console Viewer: play your console on your laptop</title>
+    <meta
+      name="description"
+      content="Play your PlayStation, Switch, Xbox or retro console on your laptop screen with a cheap HDMI to USB capture dongle. Free, runs in your browser, nothing is uploaded."
+    />
+    <meta name="theme-color" content="#07080c" />
+    <meta property="og:title" content="Console Viewer: play your console on your laptop" />
+    <meta
+      property="og:description"
+      content="Plug in an HDMI capture dongle and play your console in the browser. Low latency, screenshots, instant replay and retro filters."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="icons/icon-512.png" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:"
     />
-    <title>Console Viewer</title>
     <link rel="stylesheet" href="index.css" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" type="image/png" href="icons/icon-192.png" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   </head>
   <body>
+    <!-- Icons, drawn once and reused -->
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13.5" r="3.5" /></symbol>
+      <symbol id="i-record" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><circle class="fill" cx="12" cy="12" r="4.5" /></symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" /><path d="M3 4v4.5h4.5" /><text class="fill" x="12.6" y="15.2" text-anchor="middle">30</text></symbol>
+      <symbol id="i-pip" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><rect class="fill" x="12" y="11" width="7" height="6" rx="1" /></symbol>
+      <symbol id="i-stats" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4" /></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z" /></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" /></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="18" r="2" /></symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6.5 9H3v6h3.5l4.5 4z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></symbol>
+      <symbol id="i-muted" viewBox="0 0 24 24"><path d="M11 5 6.5 9H3v6h3.5l4.5 4z" /><path d="m16 9.5 5 5M21 9.5l-5 5" /></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" /></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+      <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M7 7h10a5 5 0 0 1 4.8 6.4l-1 3.4a2.5 2.5 0 0 1-4.3.9L14.8 16H9.2l-1.7 1.7a2.5 2.5 0 0 1-4.3-.9l-1-3.4A5 5 0 0 1 7 7z" /><path d="M7 10v4M5 12h4" /><circle class="fill" cx="16" cy="11" r="1" /><circle class="fill" cx="18" cy="13" r="1" /></symbol>
+    </svg>
+
     <div id="stage">
       <video id="video" autoplay playsinline muted></video>
+      <canvas id="filter-canvas" class="hidden"></canvas>
+    </div>
+
+    <div id="flash"></div>
+
+    <!-- Shown when the dongle is connected but no picture is coming through -->
+    <div id="no-signal" class="hidden" aria-live="polite">
+      <div class="no-signal-card">
+        <div class="pulse" aria-hidden="true">
+          <span></span><span></span><span></span>
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M9 21h6M12 17v4" /></svg>
+        </div>
+        <h2>Connected, waiting for a picture</h2>
+        <p>Your console may be off or asleep. Press the PS, Home or Xbox button on your controller to wake it.</p>
+        <p class="muted">Still nothing? Check that the HDMI cable goes from the console into the dongle, and that the console's video output is set to 1080p or lower.</p>
+      </div>
     </div>
 
     <div id="hud" class="hidden">
-      <div class="row" title="Time from when your computer receives a frame to when it is drawn. Does not include the dongle's own delay.">
+      <div class="row" title="Estimated time from when your computer receives a frame to when it is on screen. Does not include the dongle's own delay.">
         <span class="label">Display delay</span><span id="hud-latency">n/a</span>
       </div>
       <div class="row"><span class="label">Frame rate</span><span id="hud-fps">--</span></div>
       <div class="row"><span class="label">Dropped frames</span><span id="hud-dropped">--</span></div>
-      <div class="row" title="Delay added by your speakers or headphones output.">
+      <div class="row" title="Delay from your speakers or headphones, plus any audio sync delay you set.">
         <span class="label">Audio delay</span><span id="hud-audio">--</span>
       </div>
       <div class="row"><span class="label">Signal</span><span id="hud-signal">--</span></div>
       <div class="row"><span class="label">Scale</span><span id="hud-scale">--</span></div>
+      <div class="row"><span class="label">Mode</span><span id="hud-mode">--</span></div>
     </div>
 
-    <button id="sound-hint" class="hidden">Click anywhere to turn on sound</button>
+    <div id="rec-indicator" class="hidden" aria-live="polite">
+      <span class="dot"></span><span id="rec-time">0:00</span>
+    </div>
+
+    <button id="sound-hint" class="hidden">
+      <svg class="icon"><use href="#i-volume" /></svg>Click anywhere to turn on sound
+    </button>
 
     <div id="overlay">
       <div class="message">
         <h1 id="status-title">Looking for your capture device</h1>
         <p id="status-detail"></p>
+        <div id="status-setup"></div>
         <div id="overlay-actions" class="actions hidden">
-          <button id="connect" class="primary hidden">Connect capture device</button>
-          <a id="download" class="download hidden" href="__WINDOWS_DOWNLOAD_URL__">Open the Windows app</a>
+          <button id="connect" class="btn primary hidden">Connect capture device</button>
+          <a id="download" class="btn ghost js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">
+            <svg class="icon"><use href="#i-download" /></svg>Open the Windows app
+          </a>
         </div>
       </div>
     </div>
 
-    <div id="controls">
-      <select id="device" aria-label="Capture device"></select>
-      <select id="resolution" aria-label="Resolution"></select>
-      <select id="framerate" aria-label="Frame rate"></select>
-      <select id="scaling" aria-label="Scaling" title="Scaling (S)">
-        <option value="fit">Fit</option>
-        <option value="stretch">Stretch</option>
-        <option value="integer">Pixel perfect</option>
-        <option value="aspect43">4:3</option>
-      </select>
-      <label class="volume">
-        Volume
-        <input id="volume" type="range" min="0" max="1.5" step="0.05" value="1" />
-      </label>
-      <button id="pip" aria-pressed="false" title="Picture in picture (P)">Picture in picture</button>
-      <button id="stats" aria-pressed="false" title="Show delay and frame stats (L)">Stats</button>
-      <button id="fullscreen" title="Full screen (F11, F or double-click)">Full screen</button>
-      <a id="get-app" class="app-link hidden" href="__WINDOWS_DOWNLOAD_URL__">Windows app</a>
+    <div id="tip" class="tip hidden" role="status">
+      <h3 id="tip-title"></h3>
+      <p id="tip-text"></p>
+      <div class="tip-actions">
+        <button id="tip-ok" class="btn small primary">Got it</button>
+        <button id="tip-never" class="btn small quiet">Don't show this again</button>
+      </div>
     </div>
 
+    <div id="toasts" aria-live="polite"></div>
+
+    <div id="controls" class="bar">
+      <select id="profile" class="pill-select" aria-label="Profile" data-tip="Profile"></select>
+
+      <div class="seg" id="scale-seg" role="group" aria-label="Scaling" data-tip="Scaling (S)">
+        <button data-value="fit">Fit</button>
+        <button data-value="stretch">Stretch</button>
+        <button data-value="integer">Pixel</button>
+        <button data-value="aspect43">4:3</button>
+      </div>
+
+      <div class="seg" id="filter-seg" role="group" aria-label="Filter" data-tip="Retro filter (E)">
+        <button data-value="off">Clean</button>
+        <button data-value="scanlines">Scanlines</button>
+        <button data-value="crt">CRT</button>
+      </div>
+
+      <div class="group volume-group">
+        <button id="mute" class="icon-btn" aria-label="Mute" data-tip="Mute (M)">
+          <svg class="icon"><use href="#i-volume" /></svg>
+        </button>
+        <input id="volume" type="range" min="0" max="1.5" step="0.05" value="1" aria-label="Volume" />
+      </div>
+
+      <div class="group">
+        <button id="screenshot" class="icon-btn" aria-label="Screenshot" data-tip="Screenshot (C)">
+          <svg class="icon"><use href="#i-camera" /></svg>
+        </button>
+        <button id="record" class="icon-btn record" aria-label="Record" aria-pressed="false" data-tip="Record (R)">
+          <svg class="icon"><use href="#i-record" /></svg>
+        </button>
+        <button id="replay" class="icon-btn" aria-label="Save instant replay" data-tip="Save the last 30 seconds (V)">
+          <svg class="icon"><use href="#i-replay" /></svg>
+        </button>
+      </div>
+
+      <div class="group">
+        <button id="low-latency" class="icon-btn" aria-label="Low latency mode" aria-pressed="false" data-tip="Low latency mode (G)">
+          <svg class="icon"><use href="#i-bolt" /></svg>
+        </button>
+        <button id="stats" class="icon-btn" aria-label="Stats" aria-pressed="false" data-tip="Delay and frame stats (L)">
+          <svg class="icon"><use href="#i-stats" /></svg>
+        </button>
+        <button id="pip" class="icon-btn" aria-label="Picture in picture" aria-pressed="false" data-tip="Picture in picture (P)">
+          <svg class="icon"><use href="#i-pip" /></svg>
+        </button>
+        <button id="fullscreen" class="icon-btn" aria-label="Full screen" data-tip="Full screen (F)">
+          <svg class="icon"><use href="#i-expand" /></svg>
+        </button>
+        <button id="settings-btn" class="icon-btn" aria-label="Settings" aria-expanded="false" data-tip="Settings (O)">
+          <svg class="icon"><use href="#i-sliders" /></svg>
+        </button>
+      </div>
+
+      <a id="get-app" class="app-link js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__" data-tip="Open or download the desktop app">
+        <svg class="icon"><use href="#i-download" /></svg>Windows app
+      </a>
+    </div>
+
+    <aside id="settings" class="sheet" aria-label="Settings" aria-hidden="true">
+      <header>
+        <h2>Settings</h2>
+        <button id="settings-close" class="icon-btn" aria-label="Close settings">
+          <svg class="icon"><use href="#i-close" /></svg>
+        </button>
+      </header>
+
+      <section>
+        <h3>Capture</h3>
+        <label class="field">Device<select id="device"></select></label>
+        <div class="field-row">
+          <label class="field">Resolution<select id="resolution"></select></label>
+          <label class="field">Frame rate<select id="framerate"></select></label>
+        </div>
+      </section>
+
+      <section>
+        <h3>Profiles</h3>
+        <p class="hint">A profile remembers resolution, frame rate, scaling, filter and audio sync. The last profile you used with each capture device comes back automatically.</p>
+        <div class="inline-form">
+          <input id="profile-name" type="text" maxlength="24" placeholder="New profile name, like Switch" aria-label="New profile name" />
+          <button id="profile-save" class="btn small primary">Save as new</button>
+        </div>
+        <button id="profile-delete" class="btn small quiet">Delete this profile</button>
+      </section>
+
+      <section>
+        <h3>Audio</h3>
+        <label class="field">
+          <span class="field-label">Audio sync <output id="audio-delay-value">0 ms</output></span>
+          <input id="audio-delay" type="range" min="0" max="300" step="5" value="0" />
+        </label>
+        <p class="hint">If voices land before lips move, slide this right until they match.</p>
+        <label class="field">Microphone in recordings<select id="mic"></select></label>
+        <label id="mic-level-row" class="field hidden">
+          <span class="field-label">Microphone level</span>
+          <input id="mic-level" type="range" min="0" max="2" step="0.05" value="1" />
+        </label>
+        <p class="hint">Your microphone is only added to recordings and replays. You won't hear it through your speakers.</p>
+      </section>
+
+      <section>
+        <h3>Recording</h3>
+        <label class="switch">
+          <input id="replay-toggle" type="checkbox" />
+          <span class="switch-ui"></span>
+          <span><strong>Instant replay</strong><br /><span class="hint">Keeps the last 30 to 60 seconds ready to save with V. Uses some extra processing power.</span></span>
+        </label>
+        <label class="switch">
+          <input id="low-latency-toggle" type="checkbox" />
+          <span class="switch-ui"></span>
+          <span><strong>Low latency mode</strong><br /><span class="hint">Pauses filters and instant replay so nothing sits between the dongle and your screen.</span></span>
+        </label>
+        <p id="save-location" class="hint"></p>
+      </section>
+
+      <section>
+        <h3><svg class="icon"><use href="#i-gamepad" /></svg>Controller</h3>
+        <p id="controller-status" class="hint">Plug a controller into this computer and press any button.</p>
+        <p class="hint">Hold Select (View or Share) and press:</p>
+        <dl class="keys">
+          <dt>A</dt><dd>Screenshot</dd>
+          <dt>B</dt><dd>Start or stop recording</dd>
+          <dt>X</dt><dd>Save instant replay</dd>
+          <dt>Y</dt><dd>Full screen</dd>
+          <dt>LB</dt><dd>Next scaling mode</dd>
+          <dt>RB</dt><dd>Next filter</dd>
+          <dt>Start</dt><dd>Stats</dd>
+        </dl>
+        <p class="hint">This means a controller connected to this computer, not the one paired with your console.</p>
+      </section>
+
+      <section>
+        <h3>Keyboard shortcuts</h3>
+        <dl class="keys">
+          <dt>F</dt><dd>Full screen, or double click</dd>
+          <dt>C</dt><dd>Screenshot</dd>
+          <dt>R</dt><dd>Start or stop recording</dd>
+          <dt>V</dt><dd>Save instant replay</dd>
+          <dt>S</dt><dd>Next scaling mode</dd>
+          <dt>E</dt><dd>Next filter</dd>
+          <dt>M</dt><dd>Mute</dd>
+          <dt>G</dt><dd>Low latency mode</dd>
+          <dt>L</dt><dd>Stats</dd>
+          <dt>P</dt><dd>Picture in picture</dd>
+          <dt>O</dt><dd>Settings</dd>
+        </dl>
+      </section>
+
+      <section class="web-only">
+        <h3>About</h3>
+        <button id="about-btn" class="btn small quiet">What is Console Viewer?</button>
+      </section>
+    </aside>
+
+    <!-- Setup steps, used on the website and in the app when no dongle is found -->
+    <template id="setup-template">
+      <ol class="setup">
+        <li class="step">
+          <svg viewBox="0 0 120 72" aria-hidden="true">
+            <path class="cable flow" d="M2 36h18" />
+            <path class="body" d="M20 29h6v14h-6z" />
+            <rect class="body" x="26" y="25" width="58" height="22" rx="6" />
+            <rect class="metal" x="84" y="29" width="22" height="14" rx="1.5" />
+            <rect class="dark" x="89" y="33" width="4" height="3" />
+            <rect class="dark" x="97" y="33" width="4" height="3" />
+            <circle class="led" cx="74" cy="36" r="2.2" />
+            <text x="40" y="39">HDMI</text>
+          </svg>
+          <h4>Plug in the dongle</h4>
+          <p>It's a small stick with an HDMI port on one end and a USB plug on the other. Use a USB 3 port, usually blue or marked SS.</p>
+        </li>
+        <li class="step">
+          <svg viewBox="0 0 120 72" aria-hidden="true">
+            <rect class="body" x="6" y="18" width="34" height="38" rx="5" />
+            <rect class="dark" x="12" y="24" width="22" height="3" rx="1.5" />
+            <circle class="led" cx="33" cy="49" r="2" />
+            <path class="cable" d="M40 44c18 0 18-12 36-12h10" />
+            <path class="cable flow" d="M40 44c18 0 18-12 36-12h10" />
+            <rect class="body" x="86" y="25" width="28" height="14" rx="4" />
+          </svg>
+          <h4>Connect your console</h4>
+          <p>Plug your console's HDMI cable into the dongle instead of your TV, then turn the console on.</p>
+        </li>
+        <li class="step">
+          <svg viewBox="0 0 120 72" aria-hidden="true">
+            <rect class="body" x="24" y="8" width="72" height="46" rx="4" />
+            <rect class="screen" x="29" y="13" width="62" height="36" rx="2" />
+            <path class="hill back" d="M29 41c10-9 18-9 28-3s20 0 34-7v18H29z" />
+            <path class="hill" d="M29 45c12-6 22-7 33-2s18 3 29-1v8H29z" />
+            <circle class="sun" cx="78" cy="22" r="4" />
+            <path class="body" d="M14 58h92l-6 6H20z" />
+          </svg>
+          <h4>Start playing</h4>
+          <p>
+            <span class="web-only">Click Connect and allow camera and microphone. That's how your computer sees the dongle.</span>
+            <span class="app-only">Console Viewer finds the dongle on its own and shows your game.</span>
+          </p>
+        </li>
+      </ol>
+    </template>
+
+    <!-- Website front page. The desktop app never shows this. -->
+    <main id="landing" class="hidden">
+      <nav class="landing-nav">
+        <a class="brand" href="#top"><img src="icons/icon-192.png" alt="" width="28" height="28" />Console Viewer</a>
+        <div class="nav-links">
+          <a href="#how">How it works</a>
+          <a href="#dongles">Dongles</a>
+          <a href="#faq">FAQ</a>
+          <a class="btn small ghost js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">Windows app</a>
+        </div>
+      </nav>
+
+      <header class="hero" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow">Free and private. Nothing is uploaded.</p>
+          <h1>Your console,<br />on your laptop.</h1>
+          <p class="lede">Plug a cheap HDMI to USB capture dongle into your laptop and play your PlayStation, Switch, Xbox or retro console right in the browser.</p>
+          <div class="hero-actions">
+            <button id="landing-connect" class="btn primary large">Connect capture device</button>
+            <a class="btn ghost large js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">
+              <svg class="icon"><use href="#i-download" /></svg>Get the Windows app
+            </a>
+            <button id="landing-back" class="btn ghost large hidden">Back to the viewer</button>
+          </div>
+          <p class="fine">Works in Chrome and Edge. Your browser will ask for camera and microphone access, because that's how it sees the dongle.</p>
+        </div>
+
+        <div class="hero-media">
+          <!-- Drop a real clip at media/demo.mp4 and it replaces the drawing -->
+          <video id="demo-video" class="hidden" data-src="media/demo.mp4" autoplay muted loop playsinline></video>
+          <svg id="demo-fallback" class="demo-art" viewBox="0 0 480 300" role="img" aria-label="A laptop showing a game from a console connected through a capture dongle">
+            <defs>
+              <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#1b2a55" />
+                <stop offset="1" stop-color="#e98a6b" />
+              </linearGradient>
+              <clipPath id="screen-clip"><rect x="162" y="52" width="276" height="166" rx="6" /></clipPath>
+            </defs>
+            <rect class="laptop" x="150" y="40" width="300" height="190" rx="14" />
+            <g clip-path="url(#screen-clip)">
+              <rect x="162" y="52" width="276" height="166" fill="url(#sky)" />
+              <circle cx="372" cy="118" r="24" fill="#ffd27a" />
+              <g class="drift slow">
+                <path id="hills-back" fill="#3b3f7a" d="M0 170c40-30 80-30 120-8s70 18 110-6 80-24 120-2 80 18 120-4 80-20 120 20v80H0z" />
+                <use href="#hills-back" x="590" />
+              </g>
+              <g class="drift fast">
+                <path id="hills-front" fill="#1f2246" d="M0 192c50-18 90-18 140 0s90 14 140-2 90-16 140 0 90 14 140 2v60H0z" />
+                <use href="#hills-front" x="560" />
+              </g>
+              <g class="runner">
+                <rect x="232" y="166" width="14" height="18" rx="3" fill="#6aa8ff" />
+                <rect x="235" y="158" width="9" height="9" rx="2" fill="#e8f0ff" />
+              </g>
+              <rect class="mini-bar" x="244" y="200" width="112" height="11" rx="5.5" />
+            </g>
+            <path class="laptop" d="M128 234h344l-22 22H150z" />
+            <rect class="console" x="22" y="118" width="62" height="138" rx="14" />
+            <rect fill="#b8c0d2" x="34" y="132" width="38" height="4" rx="2" />
+            <circle fill="#6aa8ff" cx="53" cy="240" r="3.5" />
+            <path class="cord" d="M84 196c26 0 10 50 24 50h4" />
+            <path class="cord flow" d="M84 196c26 0 10 50 24 50h4" />
+            <rect class="dongle" x="110" y="238" width="30" height="15" rx="5" />
+          </svg>
+        </div>
+      </header>
+
+      <section class="landing-section" id="how">
+        <h2>Three steps, about a minute</h2>
+        <div id="landing-setup"></div>
+      </section>
+
+      <section class="landing-section">
+        <h2>Built for playing, not just watching</h2>
+        <div class="features">
+          <article><svg class="icon"><use href="#i-bolt" /></svg><h3>Low latency</h3><p>Usually about one frame on top of the dongle itself. Turn on stats to see the number, and low latency mode to push it lower.</p></article>
+          <article><svg class="icon"><use href="#i-replay" /></svg><h3>Screenshots and instant replay</h3><p>Grab a screenshot with C, or save the last 30 seconds with V. Screenshots are copied to your clipboard too.</p></article>
+          <article><svg class="icon"><use href="#i-sliders" /></svg><h3>Retro filters</h3><p>Scanlines and a full CRT look with curved glass and phosphor glow, plus pixel perfect and 4:3 scaling for older consoles.</p></article>
+          <article><svg class="icon"><use href="#i-pip" /></svg><h3>Picture in picture</h3><p>Pop the game into a small floating window and keep it on screen while you do something else.</p></article>
+          <article><svg class="icon"><use href="#i-gamepad" /></svg><h3>Profiles</h3><p>Save settings for each console. The right profile loads when its dongle connects.</p></article>
+          <article><svg class="icon"><use href="#i-expand" /></svg><h3>Private by design</h3><p>The picture goes from the dongle to your screen and nowhere else. Nothing is uploaded or recorded unless you ask.</p></article>
+        </div>
+      </section>
+
+      <section class="landing-section" id="dongles">
+        <h2>Which dongle do I need?</h2>
+        <p class="section-lede">Most capture devices that show up as a webcam work. These are the common ones.</p>
+        <div class="dongles">
+          <article>
+            <span class="tag good">Tested</span>
+            <h3>HDMI to USB 3.0 dongles</h3>
+            <p>Usually built on the MacroSilicon MS2130 chip. Up to 1080p at 60 fps. The best value for gaming.</p>
+          </article>
+          <article>
+            <span class="tag">Works</span>
+            <h3>HDMI to USB 2.0 dongles</h3>
+            <p>Usually the MacroSilicon MS2109 chip. Fine for slower games, but limited to around 1080p at 30 fps.</p>
+          </article>
+          <article>
+            <span class="tag">Works</span>
+            <h3>Capture cards</h3>
+            <p>Devices like the Elgato Cam Link 4K show up as a webcam and work the same way, at 1080p and 60 fps.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="landing-section" id="faq">
+        <h2>Questions</h2>
+        <details>
+          <summary>Does it add lag?</summary>
+          <p>A little. The dongle adds its own delay, and the browser usually adds about one frame on top. Turn on stats to see the number on your setup. Fast competitive games feel best on a TV, but most games play great.</p>
+        </details>
+        <details>
+          <summary>Why does it ask for my camera and microphone?</summary>
+          <p>Your computer treats an HDMI dongle as a webcam for the picture and a microphone for the game sound. Console Viewer never turns on your laptop's own camera.</p>
+        </details>
+        <details>
+          <summary>Is anything uploaded?</summary>
+          <p>No. Everything happens on your computer. Screenshots and clips are saved to your own Downloads folder.</p>
+        </details>
+        <details>
+          <summary>Do I need the Windows app?</summary>
+          <p>No. The website does everything. The Windows app adds a desktop icon, its own window, and saves screenshots and clips straight to your Pictures and Videos folders.</p>
+        </details>
+        <details>
+          <summary>Does it work on a Mac or Chromebook?</summary>
+          <p>Yes, in Chrome or Edge. The website works anywhere those browsers do.</p>
+        </details>
+        <details>
+          <summary>The picture is choppy. What can I do?</summary>
+          <p>Use a USB 3 port, set your console's video output to 1080p, and pick 1080p and 60 fps in settings. Console Viewer also shows tips when it notices a problem.</p>
+        </details>
+      </section>
+
+      <footer class="landing-footer">
+        <span>Console Viewer</span>
+        <a href="#top">Back to top</a>
+      </footer>
+    </main>
+
+    <script src="filters.js"></script>
+    <script src="recording.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>
