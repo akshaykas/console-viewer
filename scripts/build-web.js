@@ -15,7 +15,7 @@ if (!repoUrl.startsWith('https://github.com/') || repoUrl.includes('OWNER')) {
 }
 // Once PortPlay is live in the Microsoft Store, set this to true so Windows
 // visitors go to the Store page instead of the GitHub installer
-const USE_STORE = false
+const USE_STORE = true
 const STORE_URL = 'https://apps.microsoft.com/detail/9PD4BBB9JZXG'
 const downloadUrl = USE_STORE
   ? STORE_URL
