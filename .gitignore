@@ -1,5 +1,6 @@
-﻿node_modules/
+node_modules/
 out/
 web-dist/
 *.p12
 *.key
+*.pfx

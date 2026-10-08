@@ -13,7 +13,13 @@ const repoUrl = (pkg.repository?.url || pkg.repository || '')
 if (!repoUrl.startsWith('https://github.com/') || repoUrl.includes('OWNER')) {
   console.warn('Set "repository" in package.json to your GitHub repo so the download link works.')
 }
-const downloadUrl = `${repoUrl}/releases/latest/download/ConsoleViewerSetup.exe`
+// Once PortPlay is live in the Microsoft Store, set this to true so Windows
+// visitors go to the Store page instead of the GitHub installer
+const USE_STORE = false
+const STORE_URL = 'https://apps.microsoft.com/detail/9PD4BBB9JZXG'
+const downloadUrl = USE_STORE
+  ? STORE_URL
+  : `${repoUrl}/releases/latest/download/PortPlaySetup.exe`
 
 // Electron only files stay out of the website
 const SKIP = new Set(['index.js', 'preload.js'])

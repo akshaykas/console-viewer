@@ -1,7 +1,7 @@
 {
-  "name": "console-viewer",
-  "productName": "Console Viewer",
-  "version": "1.0.0",
+  "name": "portplay",
+  "productName": "PortPlay",
+  "version": "1.2.0",
   "private": true,
   "description": "Play your game console on your laptop screen with a USB HDMI capture dongle.",
   "keywords": [
@@ -30,7 +30,8 @@
     "release": "electron-forge release",
     "lint": "echo \"No linting configured\"",
     "build:web": "node scripts/build-web.js",
-    "serve:web": "npm run build:web && npx --yes serve web-dist"
+    "serve:web": "npm run build:web && npx --yes serve web-dist",
+    "make:store": "node scripts/make-store.js"
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1"
@@ -39,6 +40,7 @@
     "@electron-forge/cli": "^8.0.1",
     "@electron-forge/maker-deb": "^8.0.1",
     "@electron-forge/maker-dmg": "^8.0.1",
+    "@electron-forge/maker-msix": "^8.0.1",
     "@electron-forge/maker-rpm": "^8.0.1",
     "@electron-forge/maker-squirrel": "^8.0.1",
     "@electron-forge/maker-zip": "^8.0.1",

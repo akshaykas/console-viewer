@@ -1,6 +1,6 @@
 name: Release Windows app
 
-# Runs when you push a version tag, like v1.0.1
+# Runs when you push a version tag, like v1.2.0
 on:
   push:
     tags: ['v*']
@@ -18,7 +18,20 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      # Builds the installer and the Microsoft Store package together
       - run: npm run make
+        env:
+          PORTPLAY_STORE: '1'
+
+      # The installer goes on the public GitHub release
       - uses: softprops/action-gh-release@v2
         with:
-          files: out/make/squirrel.windows/x64/ConsoleViewerSetup.exe
+          files: out/make/squirrel.windows/x64/PortPlaySetup.exe
+
+      # The Store package is saved on this workflow run, ready to upload to Partner Center
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortPlay-Store-Package
+          path: out/make/msix/x64/*.msix
+          if-no-files-found: error

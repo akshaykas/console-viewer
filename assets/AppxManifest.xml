@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Microsoft Store package manifest for PortPlay.
+  The identity values come from Partner Center (Product management, Product identity).
+  {{Version}} is filled in from package.json when the package is built.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="shayman.PortPlay"
+    Publisher="CN=36863F56-F48D-40C7-9BFB-B5DEAC6DFB00"
+    Version="{{Version}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>PortPlay</DisplayName>
+    <PublisherDisplayName>shayman</PublisherDisplayName>
+    <Logo>assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Capabilities>
+    <!-- Lets the Electron app run as a normal desktop program -->
+    <rescap:Capability Name="runFullTrust" />
+    <!-- The HDMI dongle shows up as a camera for the picture and a microphone for the sound -->
+    <DeviceCapability Name="webcam" />
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="PortPlay" Executable="app\portplay.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="PortPlay"
+        Description="Play your game console on your laptop screen with a USB HDMI capture dongle."
+        BackgroundColor="transparent"
+        Square150x150Logo="assets\Square150x150Logo.png"
+        Square44x44Logo="assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="assets\Wide310x150Logo.png" ShortName="PortPlay" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- Lets the website open the installed app with portplay:// links -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="portplay">
+            <uap:DisplayName>PortPlay</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

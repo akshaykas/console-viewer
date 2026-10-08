@@ -1,6 +1,6 @@
 {
-  "name": "Console Viewer",
-  "short_name": "Console Viewer",
+  "name": "PortPlay",
+  "short_name": "PortPlay",
   "description": "Play your game console on your laptop screen with a USB HDMI capture dongle.",
   "start_url": ".",
   "scope": ".",

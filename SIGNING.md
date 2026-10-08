@@ -1,4 +1,4 @@
-# Signing Console Viewer
+# Signing PortPlay
 
 Builds are unsigned unless these environment variables are set, so `npm run make` keeps working on your own machine either way.
 
@@ -22,7 +22,7 @@ npm run make
 Notarization uploads the app to Apple and usually takes a few minutes. To confirm it worked:
 
 ```bash
-spctl -a -vv "out/Console Viewer-darwin-arm64/Console Viewer.app"
+spctl -a -vv "out/PortPlay-darwin-arm64/PortPlay.app"
 ```
 
 It should say `accepted` and `source=Notarized Developer ID`.

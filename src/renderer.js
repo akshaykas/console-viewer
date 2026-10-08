@@ -1,5 +1,5 @@
 // Bridge from preload.js. Missing when the page runs as the website.
-const api = window.consoleViewer
+const api = window.portplay
 const isWeb = !api
 const isWindows =
   navigator.userAgentData?.platform === 'Windows' || /Windows/.test(navigator.userAgent)
@@ -370,11 +370,11 @@ function explainMissingAudio(audioAllowed, aud, audioError) {
     if (isMac) {
       text = isWeb
         ? "Your Mac isn't letting your browser use the microphone, and the dongle's sound arrives as one. Open System Settings, go to Privacy & Security, then Microphone, and turn on your browser. Then reload this page."
-        : "Your Mac isn't letting Console Viewer use the microphone, and the dongle's sound arrives as one. Open System Settings, go to Privacy & Security, then Microphone, and turn on Console Viewer. Then reopen the app."
+        : "Your Mac isn't letting PortPlay use the microphone, and the dongle's sound arrives as one. Open System Settings, go to Privacy & Security, then Microphone, and turn on PortPlay. Then reopen the app."
     } else {
       text = isWeb
         ? 'The dongle\'s sound arrives as a microphone. Click the icon to the left of the address bar, allow the microphone, then reload the page.'
-        : "The dongle's sound arrives as a microphone. Allow microphone access for Console Viewer in your privacy settings, then reopen the app."
+        : "The dongle's sound arrives as a microphone. Allow microphone access for PortPlay in your privacy settings, then reopen the app."
     }
     showTip('audio-blocked', 'Game sound is blocked', text)
   } else if (aud && audioError) {
@@ -560,10 +560,10 @@ async function start(deviceId) {
       showStatus(
         'Camera access is turned off',
         api?.platform === 'darwin'
-          ? 'Your Mac treats the HDMI dongle as a camera. Open System Settings, go to Privacy & Security, and turn on Console Viewer under Camera and Microphone. Then reopen the app.'
+          ? 'Your Mac treats the HDMI dongle as a camera. Open System Settings, go to Privacy & Security, and turn on PortPlay under Camera and Microphone. Then reopen the app.'
           : isWeb
             ? 'Click the icon to the left of the address bar, allow the camera and microphone, then reload the page.'
-            : 'Turn on camera and microphone access for Console Viewer in your privacy settings, then reopen the app.'
+            : 'Turn on camera and microphone access for PortPlay in your privacy settings, then reopen the app.'
       )
     } else {
       showStatus(
@@ -1080,7 +1080,7 @@ async function saveCapture(kind, blob, ext) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `console-viewer-${kind}-${stamp()}.${ext}`
+  a.download = `portplay-${kind}-${stamp()}.${ext}`
   document.body.append(a)
   a.click()
   a.remove()
@@ -1566,7 +1566,7 @@ if (navigator.mediaDevices) {
 // Windows shows its own "find an app" popup. So the first click downloads the
 // installer, and after that the button opens the app.
 
-const APP_LINK = 'console-viewer://open'
+const APP_LINK = 'portplay://open'
 const appState = { downloaded: false, pwaInstalled: false, ...load('cv.windowsApp', {}) }
 const installerLink = $('download-installer')
 
@@ -1584,12 +1584,16 @@ function markDownloaded() {
   appState.downloaded = true
   save('cv.windowsApp', appState)
   updateAppLinks()
-  toast('Downloading the Windows app. Once it is installed, this button opens it.', { duration: 7000 })
+  toast('Getting the Windows app. Once PortPlay is installed, this button opens it.', { duration: 7000 })
 }
+
+// An installer downloads in place. A Store page opens in a new tab.
+const opensPage = (url) => !/\.exe($|\?)/i.test(url)
 
 function downloadInstaller(url) {
   markDownloaded()
-  window.location.href = url
+  if (opensPage(url)) window.open(url, '_blank', 'noopener')
+  else window.location.href = url
 }
 
 function openWindowsApp() {
@@ -1618,6 +1622,10 @@ for (const link of document.querySelectorAll('.js-get-app')) {
 
 // A plain link, so the browser starts the download itself
 installerLink.addEventListener('click', markDownloaded)
+if (opensPage(installerLink.href)) {
+  installerLink.target = '_blank'
+  installerLink.rel = 'noopener'
+}
 
 // Installing the website as an app from the browser counts too
 window.addEventListener('appinstalled', () => {
@@ -1643,7 +1651,7 @@ demoVideo.addEventListener('loadeddata', () => {
 document.body.classList.add(isWeb ? 'is-web' : 'is-app')
 $('landing-setup').append(setupTemplate.content.cloneNode(true))
 $('save-location').textContent = api
-  ? 'Screenshots go to Pictures and recordings go to Videos, each in a Console Viewer folder.'
+  ? 'Screenshots go to Pictures and recordings go to Videos, each in a PortPlay folder.'
   : 'Screenshots and recordings go to your Downloads folder.'
 
 if (!document.pictureInPictureEnabled) pipBtn.classList.add('hidden')

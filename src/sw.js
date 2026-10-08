@@ -1,6 +1,6 @@
 // Caches the app files so the site opens offline and can be installed.
 // The build script stamps a new version on each deploy so old caches get cleared.
-const CACHE = 'console-viewer-__BUILD_VERSION__'
+const CACHE = 'portplay-__BUILD_VERSION__'
 const FILES = [
   './',
   'index.html',

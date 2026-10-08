@@ -11,8 +11,8 @@ const {
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
-// The website opens the installed app through links like console-viewer://open
-const PROTOCOL = 'console-viewer'
+// The website opens the installed app through links like portplay://open
+const PROTOCOL = 'portplay'
 
 // Squirrel installs a stable launcher one folder above each versioned app folder.
 // Pointing the link there keeps it working after updates.
@@ -20,17 +20,22 @@ function protocolLauncher() {
   return path.resolve(path.dirname(process.execPath), '..', path.basename(process.execPath))
 }
 
+// Installed from the Microsoft Store. The Store package declares the
+// portplay:// link itself, and there's no Squirrel installer.
+const fromStore = Boolean(process.windowsStore)
+
 // Remove the link handler on uninstall, before Squirrel's own handling quits the app
-if (process.platform === 'win32' && process.argv.includes('--squirrel-uninstall')) {
+if (!fromStore && process.platform === 'win32' && process.argv.includes('--squirrel-uninstall')) {
   app.removeAsDefaultProtocolClient(PROTOCOL, protocolLauncher(), [])
 }
 
 // Handle creating and removing shortcuts on Windows when installing or uninstalling
-if (require('electron-squirrel-startup')) {
+if (!fromStore && require('electron-squirrel-startup')) {
   app.quit()
 }
 
 function registerProtocol() {
+  if (fromStore) return
   if (process.defaultApp) {
     // Running with npm start, so Windows needs the path to the script too
     app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])])
@@ -97,7 +102,7 @@ function createWindow() {
     minHeight: 270,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
-    title: 'Console Viewer',
+    title: 'PortPlay',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       // Keep drawing at full speed while another window has focus or picture in picture is open
@@ -112,7 +117,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'))
 }
 
-// Screenshots go to Pictures and clips to Videos, in a Console Viewer folder
+// Screenshots go to Pictures and clips to Videos, in a PortPlay folder
 const CAPTURE_TYPES = {
   screenshot: { folder: 'pictures', exts: new Set(['png']) },
   video: { folder: 'videos', exts: new Set(['mp4', 'webm']) },
@@ -130,7 +135,7 @@ ipcMain.handle('capture:save', async (event, kind, ext, data) => {
   if (!type || !type.exts.has(ext) || !(data instanceof ArrayBuffer)) {
     throw new Error('Unsupported capture')
   }
-  const dir = path.join(app.getPath(type.folder), 'Console Viewer')
+  const dir = path.join(app.getPath(type.folder), 'PortPlay')
   await fs.mkdir(dir, { recursive: true })
   const prefix = kind === 'screenshot' ? 'Screenshot' : 'Clip'
   let file = path.join(dir, `${prefix} ${timestamp()}.${ext}`)
