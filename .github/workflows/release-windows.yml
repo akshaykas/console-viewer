@@ -25,7 +25,8 @@ jobs:
           PORTPLAY_STORE: '1'
 
       # The installer goes on the public GitHub release
-      - uses: softprops/action-gh-release@v2
+      # Pinned to an exact commit, since this step can write to the repo
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: out/make/squirrel.windows/x64/PortPlaySetup.exe
 

@@ -20,7 +20,7 @@
   },
   "author": {
     "name": "Akshay Kaseebhotla",
-    "email": "a.kaseebhotlaa@gmail.com"
+    "email": "60951988+akshaykas@users.noreply.github.com"
   },
   "main": "./src/index.js",
   "scripts": {
@@ -39,7 +39,6 @@
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",
     "@electron-forge/maker-deb": "^8.0.1",
-    "@electron-forge/maker-dmg": "^8.0.1",
     "@electron-forge/maker-msix": "^8.0.1",
     "@electron-forge/maker-rpm": "^8.0.1",
     "@electron-forge/maker-squirrel": "^8.0.1",

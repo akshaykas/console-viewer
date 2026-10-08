@@ -124,14 +124,6 @@ module.exports = {
       },
     },
     {
-      name: '@electron-forge/maker-dmg',
-      platforms: ['darwin'],
-      config: {
-        icon: asset('icon.icns'),
-        format: 'ULFO',
-      },
-    },
-    {
       // Keep the zip too, since Electron's auto updater on macOS uses it
       name: '@electron-forge/maker-zip',
       platforms: ['darwin'],

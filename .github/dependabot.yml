@@ -1,0 +1,16 @@
+# Opens pull requests when packages or workflow actions have updates,
+# including security fixes. Review and merge them like any other change.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      electron-forge:
+        patterns: ['@electron-forge/*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
