@@ -31,7 +31,7 @@ jobs:
           files: out/make/squirrel.windows/x64/PortPlaySetup.exe
 
       # The Store package is saved on this workflow run, ready to upload to Partner Center
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: PortPlay-Store-Package
           path: out/make/msix/x64/*.msix
