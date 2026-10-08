@@ -1377,6 +1377,11 @@ option:disabled {
   color: var(--muted);
 }
 
+.footer-links {
+  display: flex;
+  gap: 20px;
+}
+
 /* Small windows */
 
 @media (max-width: 900px) {
