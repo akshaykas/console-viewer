@@ -6,6 +6,8 @@ const isWindows =
 const isMac =
   api?.platform === 'darwin' ||
   /mac/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent)
+// iPads ask for desktop sites and say they're Macs, but they have touch screens
+const isDesktopMac = isMac && !(navigator.maxTouchPoints > 1)
 
 const $ = (id) => document.getElementById(id)
 
@@ -183,8 +185,8 @@ const isInstalledWebApp =
   window.matchMedia?.('(display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: minimal-ui)')
     .matches || navigator.standalone === true
 
-// The download link only makes sense in a browser tab, for Windows visitors
-const offerDownload = isWeb && isWindows && !isInstalledWebApp
+// The desktop app button only makes sense in a browser tab, on Windows or a Mac
+const offerDownload = isWeb && (isWindows || isDesktopMac) && !isInstalledWebApp
 
 // Toasts
 
@@ -1561,71 +1563,66 @@ if (navigator.mediaDevices) {
   }
 }
 
-// Windows app button
-// Websites can't see what's installed, and guessing from focus breaks when
-// Windows shows its own "find an app" popup. So the first click downloads the
-// installer, and after that the button opens the app.
+// Desktop app button
+// Websites can't see what's installed, and guessing from focus breaks when the
+// system shows its own "find an app" popup. So the first click opens this
+// computer's app store, and after that the button opens the app.
 
 const APP_LINK = 'portplay://open'
+const storeMeta = document.querySelector('meta[name="portplay-stores"]')
+const storeUrl = (isDesktopMac ? storeMeta?.dataset.mac : storeMeta?.dataset.windows) || ''
+const storeName = isDesktopMac ? 'Mac App Store' : 'Microsoft Store'
 const appState = { downloaded: false, pwaInstalled: false, ...load('cv.windowsApp', {}) }
 const installerLink = $('download-installer')
 
 function updateAppLinks() {
   const known = appState.downloaded || appState.pwaInstalled
-  for (const link of document.querySelectorAll('.js-get-app')) {
-    link.classList.toggle('known', known)
-    const label = link.querySelector('.app-label')
-    if (label) label.textContent = appState.downloaded ? label.dataset.known : label.dataset.new
-  }
-  $('get-app').dataset.tip = appState.downloaded ? 'Open the desktop app' : 'Download the desktop app'
+  for (const link of document.querySelectorAll('.js-get-app')) link.classList.toggle('known', known)
+  $('get-app').dataset.tip = appState.downloaded ? 'Open in the desktop app' : 'Get the desktop app'
 }
 
 function markDownloaded() {
   appState.downloaded = true
   save('cv.windowsApp', appState)
   updateAppLinks()
-  toast('Getting the Windows app. Once PortPlay is installed, this button opens it.', { duration: 7000 })
+  toast(`Opening the ${storeName}. Once PortPlay is installed, Open in Desktop opens it.`, { duration: 7000 })
 }
 
-// An installer downloads in place. A Store page opens in a new tab.
-const opensPage = (url) => !/\.exe($|\?)/i.test(url)
-
-function downloadInstaller(url) {
+function openStore() {
   markDownloaded()
-  if (opensPage(url)) window.open(url, '_blank', 'noopener')
-  else window.location.href = url
+  window.open(storeUrl, '_blank', 'noopener')
 }
 
-function openWindowsApp() {
+function openDesktopApp() {
   // Free the dongle first, since usually only one program can use it at a time
   stop()
   hideLanding()
   closeSettings()
   window.location.href = APP_LINK
   showStatus(
-    'Opening the Windows app',
-    "The capture device was released so the app can use it. If Windows asks you to find an app instead, the app isn't installed yet.",
+    'Opening PortPlay',
+    "The capture device was released so the app can use it. If nothing opens, the app isn't installed yet.",
     { connect: true, installer: true }
   )
 }
 
 function onAppLinkClick(event) {
   event.preventDefault()
-  if (appState.downloaded) openWindowsApp()
-  else downloadInstaller(event.currentTarget.href)
+  if (appState.downloaded) openDesktopApp()
+  else openStore()
 }
 
 for (const link of document.querySelectorAll('.js-get-app')) {
+  link.href = storeUrl
   link.addEventListener('click', onAppLinkClick)
   if (offerDownload && link !== downloadLink) link.classList.remove('hidden')
 }
 
-// A plain link, so the browser starts the download itself
+// A plain link to the store, for when the app isn't installed yet
+installerLink.href = storeUrl
+installerLink.target = '_blank'
+installerLink.rel = 'noopener'
 installerLink.addEventListener('click', markDownloaded)
-if (opensPage(installerLink.href)) {
-  installerLink.target = '_blank'
-  installerLink.rel = 'noopener'
-}
 
 // Installing the website as an app from the browser counts too
 window.addEventListener('appinstalled', () => {

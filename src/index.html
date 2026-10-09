@@ -9,6 +9,7 @@
       content="Play your PlayStation, Switch, Xbox or retro console on your laptop screen with a cheap HDMI to USB capture dongle. Free, runs in your browser, nothing is uploaded."
     />
     <meta name="theme-color" content="#07080c" />
+    <meta name="portplay-stores" data-windows="__WINDOWS_STORE_URL__" data-mac="__MAC_STORE_URL__" />
     <meta property="og:title" content="PortPlay: play your console on your laptop" />
     <meta
       property="og:description"
@@ -92,11 +93,11 @@
         <div id="status-setup"></div>
         <div id="overlay-actions" class="actions hidden">
           <button id="connect" class="btn primary hidden">Connect capture device</button>
-          <a id="download" class="btn ghost js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">
-            <svg class="icon"><use href="#i-download" /></svg><span class="app-label" data-new="Download the Windows app" data-known="Open the Windows app">Download the Windows app</span>
+          <a id="download" class="btn ghost js-get-app hidden" href="#">
+            <svg class="icon"><use href="#i-download" /></svg><span class="app-label">Open in Desktop</span>
           </a>
-          <a id="download-installer" class="btn ghost hidden" href="__WINDOWS_DOWNLOAD_URL__">
-            <svg class="icon"><use href="#i-download" /></svg>Get the Windows app
+          <a id="download-installer" class="btn ghost hidden" href="#">
+            <svg class="icon"><use href="#i-download" /></svg>Get the desktop app
           </a>
         </div>
       </div>
@@ -166,8 +167,8 @@
         </button>
       </div>
 
-      <a id="get-app" class="app-link js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__" data-tip="Download the desktop app">
-        <svg class="icon"><use href="#i-download" /></svg>Windows app
+      <a id="get-app" class="app-link js-get-app hidden" href="#" data-tip="Open in the desktop app">
+        <svg class="icon"><use href="#i-download" /></svg>Open in Desktop
       </a>
     </div>
 
@@ -324,7 +325,7 @@
           <a href="#how">How it works</a>
           <a href="#dongles">Dongles</a>
           <a href="#faq">FAQ</a>
-          <a class="btn small ghost js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">Windows app</a>
+          <a class="btn small ghost js-get-app hidden" href="#">Open in Desktop</a>
         </div>
       </nav>
 
@@ -335,12 +336,19 @@
           <p class="lede">Plug a cheap HDMI to USB capture dongle into your laptop and play your PlayStation, Switch, Xbox or retro console right in the browser.</p>
           <div class="hero-actions">
             <button id="landing-connect" class="btn primary large">Connect capture device</button>
-            <a class="btn ghost large js-get-app hidden" href="__WINDOWS_DOWNLOAD_URL__">
-              <svg class="icon"><use href="#i-download" /></svg><span class="app-label" data-new="Get the Windows app" data-known="Open the Windows app">Get the Windows app</span>
+            <a class="btn ghost large js-get-app hidden" href="#">
+              <svg class="icon"><use href="#i-download" /></svg><span class="app-label">Open in Desktop</span>
             </a>
             <button id="landing-back" class="btn ghost large hidden">Back to the viewer</button>
           </div>
           <p class="fine">Works in Chrome and Edge. Your browser will ask for camera and microphone access, because that's how it sees the dongle.</p>
+          <div class="stores">
+            <span class="stores-label">Also available as a desktop app on the Mac App Store and the Microsoft Store</span>
+            <div class="store-badges">
+              <a class="store-badge" href="__MAC_STORE_URL__" target="_blank" rel="noopener"><img src="badges/mac-app-store.svg" alt="Download on the Mac App Store" /></a>
+              <a class="store-badge" href="__WINDOWS_STORE_URL__" target="_blank" rel="noopener"><img src="badges/microsoft-store.svg" alt="Get it from Microsoft" /></a>
+            </div>
+          </div>
         </div>
 
         <div class="hero-media">
@@ -437,12 +445,12 @@
           <p>No. Everything happens on your computer. Screenshots and clips are saved to your own Downloads folder.</p>
         </details>
         <details>
-          <summary>Do I need the Windows app?</summary>
-          <p>No. The website does everything. The Windows app adds a desktop icon, its own window, and saves screenshots and clips straight to your Pictures and Videos folders.</p>
+          <summary>Do I need the desktop app?</summary>
+          <p>No. The website does everything. The desktop apps for Windows and Mac add their own window and save screenshots and clips straight to your Pictures and Videos folders. Get them from the Microsoft Store or the Mac App Store.</p>
         </details>
         <details>
           <summary>Does it work on a Mac or Chromebook?</summary>
-          <p>Yes, in Chrome or Edge. The website works anywhere those browsers do.</p>
+          <p>Yes. On a Mac, get the PortPlay app from the Mac App Store, or use this website in Chrome or Edge. On a Chromebook, the website works in Chrome.</p>
         </details>
         <details>
           <summary>The picture is choppy. What can I do?</summary>

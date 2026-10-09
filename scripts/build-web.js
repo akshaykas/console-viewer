@@ -13,13 +13,11 @@ const repoUrl = (pkg.repository?.url || pkg.repository || '')
 if (!repoUrl.startsWith('https://github.com/') || repoUrl.includes('OWNER')) {
   console.warn('Set "repository" in package.json to your GitHub repo so the download link works.')
 }
-// Once PortPlay is live in the Microsoft Store, set this to true so Windows
-// visitors go to the Store page instead of the GitHub installer
-const USE_STORE = true
-const STORE_URL = 'https://apps.microsoft.com/detail/9PD4BBB9JZXG'
-const downloadUrl = USE_STORE
-  ? STORE_URL
-  : `${repoUrl}/releases/latest/download/PortPlaySetup.exe`
+// Store pages for the desktop apps. The website picks the right one for each visitor.
+const WINDOWS_STORE_URL = 'https://apps.microsoft.com/detail/9PD4BBB9JZXG'
+// The Apple ID from App Store Connect, under App Information, General Information
+const MAC_APP_ID = '6820696619'
+const MAC_STORE_URL = `https://apps.apple.com/app/id${MAC_APP_ID}`
 
 // Electron only files stay out of the website
 const SKIP = new Set(['index.js', 'preload.js'])
@@ -37,10 +35,13 @@ const fill = (file, replacements) => {
   fs.writeFileSync(target, text)
 }
 
-fill('index.html', [['__WINDOWS_DOWNLOAD_URL__', downloadUrl]])
+fill('index.html', [
+  ['__WINDOWS_STORE_URL__', WINDOWS_STORE_URL],
+  ['__MAC_STORE_URL__', MAC_STORE_URL],
+])
 fill('sw.js', [['__BUILD_VERSION__', `${pkg.version}-${Date.now()}`]])
 
 // Tells GitHub Pages to serve files as they are
 fs.writeFileSync(path.join(out, '.nojekyll'), '')
 
-console.log(`Website built in web-dist/ with download link ${downloadUrl}`)
+console.log(`Website built in web-dist/ with store links ${WINDOWS_STORE_URL} and ${MAC_STORE_URL}`)
