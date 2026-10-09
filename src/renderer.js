@@ -661,10 +661,39 @@ function connectFromWeb() {
   autoConnect()
 }
 
+// The front page lives at the plain address and the browser app at #app,
+// so the Back button returns to the front page and #app can be bookmarked
+const APP_HASH = '#app'
+
+function openWebApp() {
+  if (location.hash !== APP_HASH) {
+    location.hash = APP_HASH // hashchange below does the rest
+    return
+  }
+  if (stream && stream.active) hideLanding()
+  else connectFromWeb()
+}
+
+document.querySelectorAll(`a[href="${APP_HASH}"]`).forEach((link) => {
+  link.onclick = (e) => {
+    e.preventDefault()
+    openWebApp()
+  }
+})
+
 connectBtn.onclick = connectFromWeb
-$('landing-connect').onclick = connectFromWeb
 $('landing-back').onclick = hideLanding
 $('about-btn').onclick = () => showLanding({ back: true })
+
+if (isWeb) {
+  window.addEventListener('hashchange', () => {
+    if (location.hash === APP_HASH) {
+      openWebApp()
+    } else if (landing.classList.contains('hidden')) {
+      showLanding({ back: Boolean(stream && stream.active) })
+    }
+  })
+}
 
 // Audio
 // Game audio: dongle, sync delay, volume, speakers. Recordings tap in after
@@ -1685,9 +1714,15 @@ async function init() {
     return
   }
 
-  if (isWeb && !(await cameraAlreadyAllowed())) {
+  // The website always opens on the front page, unless the address ends in #app
+  if (isWeb && location.hash !== APP_HASH) {
     showStatus('Connect your capture device', '', { connect: true, setup: true, download: true })
     showLanding()
+    return
+  }
+
+  if (isWeb && !(await cameraAlreadyAllowed())) {
+    showStatus('Connect your capture device', '', { connect: true, setup: true, download: true })
     return
   }
 

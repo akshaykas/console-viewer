@@ -2,7 +2,7 @@
   "name": "PortPlay",
   "short_name": "PortPlay",
   "description": "Play your game console on your laptop screen with a USB HDMI capture dongle.",
-  "start_url": ".",
+  "start_url": "./#app",
   "scope": ".",
   "display": "standalone",
   "background_color": "#000000",
