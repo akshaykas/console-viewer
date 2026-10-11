@@ -278,6 +278,78 @@ function hideLanding() {
 
 // Devices
 
+// A half connected dongle (a loose cable or adapter) can leave getUserMedia
+// waiting forever. Give up after a few seconds, and if the stream turns up
+// later anyway, release it so it doesn't keep the dongle busy.
+const OPEN_TIMEOUT_MS = 6000
+
+function openMedia(constraints) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      settled = true
+      const err = new Error('The dongle stopped responding')
+      err.name = 'TimeoutError'
+      reject(err)
+    }, OPEN_TIMEOUT_MS)
+    navigator.mediaDevices.getUserMedia(constraints).then(
+      (s) => {
+        clearTimeout(timer)
+        if (settled) s.getTracks().forEach((t) => t.stop())
+        else {
+          settled = true
+          resolve(s)
+        }
+      },
+      (err) => {
+        clearTimeout(timer)
+        if (!settled) {
+          settled = true
+          reject(err)
+        }
+      }
+    )
+  })
+}
+
+// Errors a wiggled cable or a dongle that is still waking up can cause
+const TRANSIENT_ERRORS = new Set(['NotReadableError', 'AbortError', 'TimeoutError'])
+const RECONNECT_DELAYS = [500, 1000, 2000, 3000, 5000]
+
+// Every connection attempt gets a number. An older attempt that finishes
+// after a newer one started gives up its stream instead of taking over.
+let connectId = 0
+let reconnectTimer = null
+let reconnectAttempts = 0
+
+function cancelReconnect() {
+  clearTimeout(reconnectTimer)
+  reconnectTimer = null
+}
+
+function scheduleReconnect(deviceId, reason) {
+  cancelReconnect()
+  if (reconnectAttempts >= RECONNECT_DELAYS.length) {
+    reconnectAttempts = 0
+    showStatus(
+      "Couldn't reconnect to the capture device",
+      `${reason}\nCheck that the cable and any adapter are pushed in firmly, or plug the dongle straight into the computer. Then unplug it and plug it back in.`,
+      { setup: true }
+    )
+    return
+  }
+  const delay = RECONNECT_DELAYS[reconnectAttempts]
+  reconnectAttempts++
+  showStatus(
+    'Reconnecting',
+    `${reason} Trying again (${reconnectAttempts} of ${RECONNECT_DELAYS.length}).`
+  )
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    start(deviceId, { retry: true })
+  }, delay)
+}
+
 async function getDevices() {
   let devices = await navigator.mediaDevices.enumerateDevices()
 
@@ -289,11 +361,11 @@ async function getDevices() {
   if (hidden) {
     let temp = null
     try {
-      temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      temp = await openMedia({ video: true, audio: true })
     } catch {
       // No microphone allowed or present, so carry on with video only
       try {
-        temp = await navigator.mediaDevices.getUserMedia({ video: true })
+        temp = await openMedia({ video: true })
       } catch {}
     }
     if (temp) {
@@ -460,14 +532,18 @@ function applyCapabilities(track) {
   }
 }
 
-async function start(deviceId) {
+async function start(deviceId, { retry = false } = {}) {
   stop()
-  showStatus('Connecting')
+  const id = ++connectId
+  if (!retry) reconnectAttempts = 0
+  if (!retry || !reconnectAttempts) showStatus('Connecting')
 
   const { videos, audios, audioAllowed } = await getDevices()
+  if (id !== connectId) return
   const vid = videos.find((v) => v.deviceId === deviceId)
 
   if (!vid) {
+    reconnectAttempts = 0
     showStatus('Capture device not found', 'Plug in your HDMI dongle and it will connect automatically.', {
       setup: true,
       download: true,
@@ -505,12 +581,13 @@ async function start(deviceId) {
   // If the sound fails to open, keep going with just the picture
   let audioError = null
   const openStream = async (video) => {
-    if (!audio || audioError) return navigator.mediaDevices.getUserMedia({ video, audio: false })
+    if (!audio || audioError) return openMedia({ video, audio: false })
     try {
-      return await navigator.mediaDevices.getUserMedia({ video, audio })
+      return await openMedia({ video, audio })
     } catch (err) {
-      if (err.name === 'OverconstrainedError') throw err
-      const videoOnly = await navigator.mediaDevices.getUserMedia({ video, audio: false })
+      // A stuck or busy dongle fails the same way without audio, so don't wait twice
+      if (err.name === 'OverconstrainedError' || err.name === 'TimeoutError') throw err
+      const videoOnly = await openMedia({ video, audio: false })
       audioError = err.name
       return videoOnly
     }
@@ -522,11 +599,12 @@ async function start(deviceId) {
   const candidates = RESOLUTIONS.slice(startIndex).map(([value]) => value)
   let usedResolution = null
   let lastError = null
+  let opened = null
 
   for (const value of candidates) {
     const [w, h] = value.split('x').map(Number)
     try {
-      stream = await openStream({
+      opened = await openStream({
         deviceId: { exact: deviceId },
         width: { exact: w },
         height: { exact: h },
@@ -543,9 +621,9 @@ async function start(deviceId) {
   }
 
   // Nothing matched, so let the browser pick the closest mode it can
-  if (!stream && lastError?.name === 'OverconstrainedError') {
+  if (!opened && lastError?.name === 'OverconstrainedError') {
     try {
-      stream = await openStream({
+      opened = await openStream({
         deviceId: { exact: deviceId },
         width: { ideal: width },
         height: { ideal: height },
@@ -556,9 +634,17 @@ async function start(deviceId) {
     }
   }
 
-  if (!stream) {
+  // A newer attempt started while this one was waiting, so step aside
+  if (id !== connectId) {
+    if (opened) opened.getTracks().forEach((t) => t.stop())
+    return
+  }
+
+  if (!opened) {
     const err = lastError || new Error('Unknown error')
-    if (err.name === 'NotAllowedError') {
+    if (TRANSIENT_ERRORS.has(err.name)) {
+      scheduleReconnect(deviceId, "The capture device isn't responding.")
+    } else if (err.name === 'NotAllowedError') {
       showStatus(
         'Camera access is turned off',
         api?.platform === 'darwin'
@@ -576,6 +662,9 @@ async function start(deviceId) {
     return
   }
 
+  stream = opened
+  reconnectAttempts = 0
+  sawFrames = false
   currentDevice = vid
   prefs.videoDevice = deviceId
   savePrefs()
@@ -599,9 +688,13 @@ async function start(deviceId) {
   if (!stream.getAudioTracks().length) explainMissingAudio(audioAllowed, aud, audioError)
 
   const track = stream.getVideoTracks()[0]
+  // A bumped cable ends the track. Try to get it back on our own. If the
+  // dongle was really unplugged, the retry finds it missing and waits for
+  // it to be plugged back in.
   track.onended = () => {
+    if (id !== connectId) return
     stop()
-    showStatus('Capture device disconnected', 'Plug it back in to reconnect.', { setup: true })
+    scheduleReconnect(deviceId, 'The connection to the capture device dropped.')
   }
 
   applyCapabilities(track)
@@ -613,6 +706,9 @@ async function start(deviceId) {
 }
 
 function stop() {
+  // Cancels any connection still in progress, so it can't take the dongle back
+  connectId++
+  cancelReconnect()
   if (recorder) finishRecording()
   stopReplay()
   stopFrameLoop()
@@ -633,11 +729,22 @@ function stop() {
 }
 
 async function autoConnect() {
-  if (stream && stream.active) return
+  const active = stream?.active ? currentDevice : null
   const pick = await refreshDevices()
+
+  // Keep a working connection, unless its dongle just disappeared
+  if (active && stream?.active && currentDevice === active) {
+    const stillThere = [...deviceSelect.options].some((o) => o.value === active.deviceId)
+    if (stillThere) {
+      deviceSelect.value = active.deviceId
+      return
+    }
+  }
+
   if (pick) {
     start(pick.deviceId)
   } else {
+    cancelReconnect()
     showStatus(
       'No capture device found',
       'Plug in your HDMI to USB dongle, or choose a device in settings.',
@@ -1021,6 +1128,9 @@ const probeCtx = probe.getContext('2d')
 let monitorTimer = null
 let darkSeconds = 0
 let slowSeconds = 0
+let stalledSeconds = 0
+// Frames arrived at least once on this connection, so zero now means a stall
+let sawFrames = false
 let droppedHistory = []
 
 function isPictureBlack() {
@@ -1045,6 +1155,22 @@ function setNoSignal(on) {
 function checkSignal() {
   if (!stream) return
   const fps = currentFps()
+
+  // A loose cable can freeze the dongle without ending the stream. Frames
+  // only count while the window can draw them, so ignore a minimized window.
+  if (fps > 0) {
+    sawFrames = true
+    stalledSeconds = 0
+  } else if (sawFrames && (document.visibilityState === 'visible' || document.pictureInPictureElement)) {
+    stalledSeconds++
+    if (stalledSeconds >= 5 && currentDevice) {
+      const deviceId = currentDevice.deviceId
+      stop()
+      scheduleReconnect(deviceId, 'The picture froze.')
+      return
+    }
+  }
+
   const noPicture = fps === 0 || isPictureBlack()
 
   darkSeconds = noPicture ? darkSeconds + 1 : 0
@@ -1087,6 +1213,7 @@ function stopMonitor() {
   monitorTimer = null
   darkSeconds = 0
   slowSeconds = 0
+  stalledSeconds = 0
   droppedHistory = []
 }
 
