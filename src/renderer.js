@@ -1831,6 +1831,10 @@ if (isWeb && 'serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 async function init() {
+  // boot.js held the front page up while this script loaded. Everything up to
+  // the first await runs before the next paint, so there's no flash.
+  document.documentElement.classList.remove('boot-landing')
+
   if (!navigator.mediaDevices?.getUserMedia) {
     showStatus(
       'This browser cannot open capture devices',

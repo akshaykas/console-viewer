@@ -5,6 +5,7 @@ const FILES = [
   './',
   'index.html',
   'index.css',
+  'boot.js',
   'filters.js',
   'recording.js',
   'renderer.js',

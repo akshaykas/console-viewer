@@ -46,6 +46,14 @@ body.idle {
   display: none !important;
 }
 
+/* Website, before renderer.js loads: show the front page, not the device screen */
+.boot-landing #landing.hidden {
+  display: block !important;
+}
+.boot-landing #overlay {
+  visibility: hidden;
+}
+
 .sprite {
   position: absolute;
   width: 0;
