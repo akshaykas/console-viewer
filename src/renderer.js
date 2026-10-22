@@ -49,6 +49,7 @@ const gameAudioSelect = $('game-audio')
 const micLevel = $('mic-level')
 const replayToggle = $('replay-toggle')
 const lowLatencyToggle = $('low-latency-toggle')
+const sharpenToggle = $('sharpen-toggle')
 const controllerStatus = $('controller-status')
 const recIndicator = $('rec-indicator')
 const recTime = $('rec-time')
@@ -129,6 +130,7 @@ const DEFAULT_PROFILE = {
   framerate: Number(legacy('framerate')) || 60,
   scaling: legacy('scaling') || 'fit',
   filter: 'off',
+  sharpen: false,
   audioDelay: 0,
 }
 
@@ -168,6 +170,11 @@ let gainNode = null
 let delayNode = null
 let recDest = null
 let hasGameAudio = false
+let analyser = null
+// Why game sound is missing on this connection: 'off', 'blocked', 'busy', 'missing' or null
+let audioProblem = null
+// The highest frame rate the dongle offers at any size
+let dongleMaxFps = Infinity
 let micStream = null
 let micGain = null
 let recorder = null
@@ -437,6 +444,15 @@ function fillGameAudioList(vid, audios) {
 }
 
 // Explains why there's no game sound, once the picture is up
+// Why there's no game sound, for Check my setup
+function describeAudioProblem(audioAllowed, aud, audioError) {
+  if (prefs.gameAudio[currentDevice.label] === 'none') return 'off'
+  if (!audioAllowed || audioError === 'NotAllowedError') return 'blocked'
+  if (aud && audioError) return 'busy'
+  if (!aud) return 'missing'
+  return null
+}
+
 function explainMissingAudio(audioAllowed, aud, audioError) {
   if (prefs.gameAudio[currentDevice.label] === 'none') return
   if (!audioAllowed || audioError === 'NotAllowedError') {
@@ -507,6 +523,7 @@ function applyCapabilities(track) {
   const maxW = caps.width?.max ?? Infinity
   const maxH = caps.height?.max ?? Infinity
   const maxFps = caps.frameRate?.max ?? Infinity
+  dongleMaxFps = maxFps
 
   for (const opt of resSelect.options) {
     const [w, h] = opt.value.split('x').map(Number)
@@ -685,7 +702,10 @@ async function start(deviceId, { retry = false } = {}) {
 
   video.srcObject = new MediaStream(stream.getVideoTracks())
   setupAudio()
-  if (!stream.getAudioTracks().length) explainMissingAudio(audioAllowed, aud, audioError)
+  if (!stream.getAudioTracks().length) {
+    audioProblem = describeAudioProblem(audioAllowed, aud, audioError)
+    explainMissingAudio(audioAllowed, aud, audioError)
+  }
 
   const track = stream.getVideoTracks()[0]
   // A bumped cable ends the track. Try to get it back on our own. If the
@@ -724,7 +744,10 @@ function stop() {
   gainNode = null
   delayNode = null
   recDest = null
+  analyser = null
   hasGameAudio = false
+  audioProblem = null
+  dongleMaxFps = Infinity
   video.srcObject = null
 }
 
@@ -817,7 +840,13 @@ function setupAudio() {
     delayNode = audioCtx.createDelay(1)
     delayNode.delayTime.value = profile().audioDelay / 1000
     gainNode = audioCtx.createGain()
-    audioCtx.createMediaStreamSource(new MediaStream(tracks)).connect(delayNode)
+    const source = audioCtx.createMediaStreamSource(new MediaStream(tracks))
+    source.connect(delayNode)
+    // Measures the sound for Check my setup, before volume and mute
+    analyser = audioCtx.createAnalyser()
+    // The largest window, about 0.7 seconds, so short gaps in the sound don't read as silence
+    analyser.fftSize = 32768
+    source.connect(analyser)
     delayNode.connect(gainNode).connect(audioCtx.destination)
     delayNode.connect(recDest)
   }
@@ -971,8 +1000,10 @@ function cycleScaling() {
 
 function applyFilter() {
   const name = prefs.lowLatency ? 'off' : profile().filter
+  filters.setSharpen(!prefs.lowLatency && Boolean(profile().sharpen))
   filters.setFilter(name)
   setSeg(filterSeg, profile().filter)
+  sharpenToggle.checked = Boolean(profile().sharpen)
   filterSeg.classList.toggle('dimmed', prefs.lowLatency)
   layoutVideo()
 }
@@ -1002,6 +1033,24 @@ scaleSeg.addEventListener('click', (e) => {
   if (b) setScaling(b.dataset.value)
 })
 
+function setSharpen(on, { announce = false } = {}) {
+  if (on && !filters.supported) {
+    sharpenToggle.checked = false
+    toast("Sharpen needs WebGL, which isn't available on this computer")
+    return
+  }
+  setProfileValue('sharpen', on)
+  if (prefs.lowLatency && on) {
+    setLowLatency(false)
+    toast('Low latency mode is off so Sharpen can run')
+  } else if (announce) {
+    toast(on ? 'Sharpen on' : 'Sharpen off', { duration: 1500 })
+  }
+  applyFilter()
+}
+
+sharpenToggle.onchange = () => setSharpen(sharpenToggle.checked)
+
 filterSeg.addEventListener('click', (e) => {
   const b = e.target.closest('button[data-value]')
   if (b) setFilter(b.dataset.value)
@@ -1020,7 +1069,7 @@ function setLowLatency(on, { announce = false } = {}) {
   if (announce) {
     toast(
       on
-        ? 'Low latency mode on. Filters and instant replay are paused.'
+        ? 'Low latency mode on. Filters, Sharpen and instant replay are paused.'
         : 'Low latency mode off'
     )
   }
@@ -1100,7 +1149,8 @@ function renderHud() {
   hudScale.textContent = scaleText || '--'
 
   const mode = [prefs.lowLatency ? 'Low latency' : 'Normal']
-  if (filters.active) mode.push(`${FILTERS[filters.filter].label} filter`)
+  if (filters.active && filters.filter !== 'off') mode.push(`${FILTERS[filters.filter].label} filter`)
+  if (filters.active && filters.sharpen) mode.push('sharpen')
   if (replay) mode.push('replay on')
   hudMode.textContent = mode.join(', ')
 }
@@ -1126,12 +1176,29 @@ probe.height = 36
 // Scaling down happens on the graphics card, so only a tiny image is read back
 const probeCtx = probe.getContext('2d')
 let monitorTimer = null
+let silentSeconds = 0
 let darkSeconds = 0
 let slowSeconds = 0
 let stalledSeconds = 0
 // Frames arrived at least once on this connection, so zero now means a stall
 let sawFrames = false
 let droppedHistory = []
+
+// Quieter than this is silence. HDMI silence is usually exactly zero.
+const SILENCE = 0.003
+
+// Loudest sample in the last 0.7 seconds of game sound, before volume and
+// mute. Null when there's no game sound to measure.
+let peakSamples = null
+function audioPeak() {
+  if (!analyser || audioCtx?.state !== 'running') return null
+  if (peakSamples?.length !== analyser.fftSize) peakSamples = new Float32Array(analyser.fftSize)
+  const samples = peakSamples
+  analyser.getFloatTimeDomainData(samples)
+  let peak = 0
+  for (const s of samples) peak = Math.max(peak, Math.abs(s))
+  return peak
+}
 
 function isPictureBlack() {
   if (video.readyState < 2 || !video.videoWidth) return true
@@ -1177,6 +1244,18 @@ function checkSignal() {
   setNoSignal(darkSeconds >= 4)
   if (noPicture) return
 
+  // A picture but no sound for a while usually means the console sends its
+  // sound somewhere else, like a USB headset adapter
+  const peak = audioPeak()
+  silentSeconds = peak !== null && peak < SILENCE ? silentSeconds + 1 : 0
+  if (silentSeconds >= 20) {
+    showTip(
+      'silent-audio',
+      'No sound from your console',
+      "Check that your console sends its sound over HDMI, not to a headset. Unplug any USB headset or Bluetooth adapter from the console, and check that the game isn't muted. Check my setup in settings can help too."
+    )
+  }
+
   // Frame rate well under what the dongle says it is sending
   const target = stream.getVideoTracks()[0]?.getSettings().frameRate || 0
   slowSeconds = target >= 25 && fps < target * 0.75 ? slowSeconds + 1 : 0
@@ -1212,6 +1291,7 @@ function stopMonitor() {
   clearInterval(monitorTimer)
   monitorTimer = null
   darkSeconds = 0
+  silentSeconds = 0
   slowSeconds = 0
   stalledSeconds = 0
   droppedHistory = []
@@ -1606,8 +1686,50 @@ const PAD_ACTIONS = {
   5: cycleFilter,
   9: () => setStats(!statsOn),
 }
+const PAD_ACTION_NAMES = {
+  0: 'Screenshot',
+  1: 'Start or stop recording',
+  2: 'Save instant replay',
+  3: 'Full screen',
+  4: 'Next scaling mode',
+  5: 'Next filter',
+  9: 'Stats',
+}
+
+// Button names printed on each kind of controller, by standard gamepad position.
+// Nintendo's A and B swap places compared with Xbox, so position 0 is B.
+const PAD_LAYOUTS = {
+  xbox: { select: 'View', keys: { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 9: 'Menu' } },
+  playstation: {
+    select: 'Create',
+    keys: { 0: '✕', 1: '○', 2: '□', 3: '△', 4: 'L1', 5: 'R1', 9: 'Options' },
+    classes: { 0: 'ps-cross', 1: 'ps-circle', 2: 'ps-square', 3: 'ps-triangle' },
+  },
+  nintendo: { select: '−', keys: { 0: 'B', 1: 'A', 2: 'Y', 3: 'X', 4: 'L', 5: 'R', 9: '+' } },
+  generic: { select: 'Select', keys: { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 9: 'Start' } },
+}
+
+// Works out the brand from the name and USB IDs browsers report, like
+// "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)"
+// in Chrome or "054c-0ce6-DualSense Wireless Controller" in Firefox
+function padLayout(pad) {
+  if (!pad || pad.mapping !== 'standard') return { ...PAD_LAYOUTS.generic, kind: 'generic' }
+  const id = pad.id.toLowerCase()
+  const vendor = id.match(/vendor:\s*([0-9a-f]{4})/)?.[1] || id.match(/^([0-9a-f]{4})-[0-9a-f]{4}-/)?.[1]
+  if (vendor === '054c' || /dualsense|dualshock|playstation/.test(id)) {
+    // The PS4 controller calls this button Share, the PS5 one Create
+    const ps4 = /dualshock|05c4|09cc/.test(id)
+    return { ...PAD_LAYOUTS.playstation, select: ps4 ? 'Share' : 'Create', kind: 'playstation' }
+  }
+  if (vendor === '057e' || /pro controller|joy-con|nintendo/.test(id)) return { ...PAD_LAYOUTS.nintendo, kind: 'nintendo' }
+  if (vendor === '045e' || /xbox|xinput/.test(id)) return { ...PAD_LAYOUTS.xbox, kind: 'xbox' }
+  return { ...PAD_LAYOUTS.generic, kind: 'generic' }
+}
+
 const padPrevious = {}
 let padLoop = null
+// The controller whose button names settings shows: the last one used
+let activePad = null
 
 function pollPads() {
   let any = false
@@ -1616,6 +1738,10 @@ function pollPads() {
     any = true
     const pressed = pad.buttons.map((b) => b.pressed)
     const before = padPrevious[pad.index] || []
+    if (activePad !== pad.index && pressed.some((p, i) => p && !before[i])) {
+      activePad = pad.index
+      describePads()
+    }
     if (pressed[PAD_SELECT]) {
       for (const [index, action] of Object.entries(PAD_ACTIONS)) {
         if (pressed[index] && !before[index]) {
@@ -1629,20 +1755,282 @@ function pollPads() {
   padLoop = any ? requestAnimationFrame(pollPads) : null
 }
 
+const padName = (pad) => pad.id.replace(/\s*\(.*\)\s*$/, '').replace(/^[0-9a-f]{4}-[0-9a-f]{4}-/i, '')
+
+function currentPad() {
+  const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean)
+  return pads.find((p) => p.index === activePad) || pads[0] || null
+}
+
 function describePads() {
   const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean)
   controllerStatus.textContent = pads.length
-    ? `Connected: ${pads.map((p) => p.id.replace(/\s*\(.*\)\s*$/, '')).join(', ')}`
+    ? `Connected: ${pads.map(padName).join(', ')}`
     : 'Plug a controller into this computer and press any button.'
+
+  // Show the buttons as they're printed on the controller in use
+  const layout = padLayout(currentPad())
+  $('pad-hint').textContent =
+    layout.kind === 'generic' ? 'Hold Select (View, Share or Create) and press:' : `Hold ${layout.select} and press:`
+  const rows = []
+  for (const [index, action] of Object.entries(PAD_ACTION_NAMES)) {
+    const dt = document.createElement('dt')
+    dt.textContent = layout.keys[index]
+    const glyphClass = layout.classes?.[index]
+    if (glyphClass) dt.classList.add('glyph', glyphClass)
+    const dd = document.createElement('dd')
+    dd.textContent = action
+    rows.push(dt, dd)
+  }
+  $('pad-keys').replaceChildren(...rows)
 }
 
-window.addEventListener('gamepadconnected', () => {
+window.addEventListener('gamepadconnected', (e) => {
+  activePad = e.gamepad.index
   describePads()
-  toast('Controller connected. Hold Select and press A for a screenshot.', { duration: 5000 })
+  const layout = padLayout(e.gamepad)
+  toast(`Controller connected. Hold ${layout.select} and press ${layout.keys[0]} for a screenshot.`, { duration: 5000 })
   if (!padLoop) padLoop = requestAnimationFrame(pollPads)
 })
 
 window.addEventListener('gamepaddisconnected', describePads)
+
+// Check my setup
+// Watches the picture and sound for a few seconds, then explains in plain
+// words anything that keeps PortPlay from working well.
+
+const checkupEl = $('checkup')
+const checkupList = $('checkup-list')
+const checkupSummary = $('checkup-summary')
+const checkupAgain = $('checkup-again')
+let checkupRun = 0
+
+const checkupOpen = () => !checkupEl.classList.contains('hidden')
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const CAMERA_FIX = isMac
+  ? isWeb
+    ? 'Open System Settings, go to Privacy & Security, then Camera, and turn on your browser. Then reload this page.'
+    : 'Open System Settings, go to Privacy & Security, then Camera, and turn on PortPlay. Then reopen the app.'
+  : isWeb
+    ? 'Click the icon to the left of the address bar, allow the camera and microphone, then reload the page.'
+    : 'Turn on camera and microphone access for PortPlay in your privacy settings, then reopen the app.'
+
+const HDCP_FIX =
+  "PlayStation consoles block capture unless HDCP is off. On a PS5, go to Settings, System, HDMI and turn off Enable HDCP. On a PS4, it's Settings, System, Enable HDCP."
+
+function openCheckup() {
+  closeSettings()
+  checkupEl.classList.remove('hidden')
+  runCheckup()
+}
+
+function closeCheckup() {
+  checkupRun++
+  checkupEl.classList.add('hidden')
+}
+
+function renderChecks(checks) {
+  const icons = { good: '✓', warn: '!', bad: '✕', info: 'i', pending: '' }
+  checkupList.replaceChildren(
+    ...checks.map(({ status, title, text }) => {
+      const li = document.createElement('li')
+      li.className = `check ${status}`
+      const icon = document.createElement('span')
+      icon.className = 'check-icon'
+      icon.textContent = icons[status]
+      icon.setAttribute('aria-hidden', 'true')
+      const body = document.createElement('div')
+      const strong = document.createElement('strong')
+      strong.textContent = title
+      body.append(strong)
+      if (text) {
+        const p = document.createElement('p')
+        p.textContent = text
+        body.append(p)
+      }
+      li.append(icon, body)
+      return li
+    })
+  )
+}
+
+async function runCheckup() {
+  const run = ++checkupRun
+  checkupAgain.disabled = true
+  checkupSummary.textContent = 'Watching the picture and sound for a few seconds.'
+  renderChecks(
+    ['Capture dongle', 'Picture', 'USB connection', 'Game sound', 'Performance'].map((title) => ({
+      status: 'pending',
+      title,
+    }))
+  )
+
+  // Sample the picture and sound twice a second for four seconds
+  const droppedBefore = video.getVideoPlaybackQuality?.().droppedVideoFrames ?? 0
+  let peak = null
+  let dark = 0
+  let samples = 0
+  const fpsSamples = []
+  for (let i = 0; i < 8; i++) {
+    await sleep(500)
+    if (run !== checkupRun) return
+    if (!stream) continue
+    samples++
+    fpsSamples.push(currentFps())
+    if (isPictureBlack()) dark++
+    const p = audioPeak()
+    if (p !== null) peak = Math.max(peak ?? 0, p)
+  }
+  const dropped = (video.getVideoPlaybackQuality?.().droppedVideoFrames ?? 0) - droppedBefore
+  const checks = await collectChecks({ peak, dark, samples, fpsSamples, dropped })
+  if (run !== checkupRun) return
+
+  renderChecks(checks)
+  const problems = checks.filter((c) => c.status === 'bad' || c.status === 'warn').length
+  checkupSummary.textContent =
+    problems === 0
+      ? 'Everything looks good.'
+      : problems === 1
+        ? 'One thing to look at.'
+        : `${problems} things to look at, starting with the first.`
+  checkupAgain.disabled = false
+}
+
+async function collectChecks({ peak, dark, samples, fpsSamples, dropped }) {
+  const checks = []
+
+  // Capture dongle
+  if (!stream) {
+    let videos = []
+    try {
+      videos = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput')
+    } catch {}
+    const allowed = !isWeb || (await cameraAlreadyAllowed())
+    if (isWeb && !allowed) {
+      checks.push({ status: 'bad', title: 'Camera access is off', text: `Your dongle counts as a camera. ${CAMERA_FIX}` })
+    } else if (!videos.some((v) => looksLikeCapture(v.label))) {
+      checks.push({
+        status: 'bad',
+        title: 'No capture dongle found',
+        text: "Plug the dongle into a USB port on this computer. If it's already plugged in, unplug it, wait a few seconds and plug it back in, or try another port.",
+      })
+    } else {
+      checks.push({
+        status: 'warn',
+        title: 'Dongle found but not connected',
+        text: 'Choose it under Device in settings. If it still won\'t connect, close other apps that use the camera, like OBS, Discord or Teams.',
+      })
+    }
+    return checks
+  }
+  checks.push({ status: 'good', title: 'Capture dongle', text: `Connected to ${currentDevice?.label || 'your dongle'}.` })
+
+  // Picture
+  const fps = fpsSamples.length ? Math.round(fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length) : 0
+  const live = fps > 0 && dark < samples
+  if (fps === 0) {
+    checks.push({
+      status: 'bad',
+      title: 'No picture from the console',
+      text: `Turn the console on and wake it with its controller. Check that the HDMI cable goes from the console into the dongle. ${HDCP_FIX}`,
+    })
+  } else if (!live) {
+    checks.push({
+      status: 'warn',
+      title: 'The picture is black',
+      text: `If the console is on, it may be blocking capture. ${HDCP_FIX} Also set the console's video output to 1080p or lower.`,
+    })
+  } else {
+    const s = stream.getVideoTracks()[0]?.getSettings() || {}
+    checks.push({ status: 'good', title: 'Picture', text: `${s.width}x${s.height} at ${fps} fps.` })
+  }
+
+  // USB connection
+  const target = Math.round(stream.getVideoTracks()[0]?.getSettings().frameRate || 0)
+  if (profile().framerate >= 50 && Number.isFinite(dongleMaxFps) && dongleMaxFps < 49) {
+    checks.push({
+      status: 'warn',
+      title: `Your dongle tops out at ${Math.round(dongleMaxFps)} fps`,
+      text: isMac
+        ? 'This usually means a USB 2 cable, hub or adapter. Plug the dongle straight into the Mac, or use a USB 3 cable or hub. If it already is, the dongle may be a USB 2 model.'
+        : 'This usually means a USB 2 port, hub or adapter. Try a USB 3 port, usually blue or marked SS. If it already is, the dongle may be a USB 2 model.',
+    })
+  } else if (live && target >= 25 && fps < target * 0.75) {
+    checks.push({
+      status: 'warn',
+      title: `Running at ${fps} fps instead of ${target}`,
+      text: "Try a USB 3 port directly on the computer, set your console's video output to 1080p, or pick a lower resolution in settings.",
+    })
+  } else if (live) {
+    checks.push({ status: 'good', title: 'USB connection', text: 'Fast enough for full speed.' })
+  }
+
+  // Game sound
+  if (audioProblem === 'off') {
+    checks.push({ status: 'info', title: 'Game sound is off', text: 'Game audio is set to None in settings.' })
+  } else if (audioProblem === 'blocked') {
+    checks.push({
+      status: 'bad',
+      title: 'Game sound is blocked',
+      text: isMac
+        ? `The dongle's sound counts as a microphone. Open System Settings, go to Privacy & Security, then Microphone, and turn on ${isWeb ? 'your browser' : 'PortPlay'}.`
+        : `The dongle's sound counts as a microphone. ${isWeb ? 'Allow the microphone for this site, then reload the page.' : 'Allow microphone access for PortPlay in your privacy settings, then reopen the app.'}`,
+    })
+  } else if (audioProblem === 'busy') {
+    checks.push({
+      status: 'bad',
+      title: "Couldn't open the game sound",
+      text: 'Another app may be using it. Close other apps that use the dongle, then unplug it and plug it back in.',
+    })
+  } else if (audioProblem === 'missing' || !hasGameAudio) {
+    checks.push({
+      status: 'bad',
+      title: "Couldn't find the game sound",
+      text: 'Choose your dongle under Game audio in settings. Its name usually matches the dongle, or says USB Digital Audio.',
+    })
+  } else if (audioCtx?.state !== 'running') {
+    checks.push({
+      status: 'warn',
+      title: 'Sound is waiting for a click',
+      text: 'Your browser holds sound until you click the page. Click anywhere to turn it on.',
+    })
+  } else if (live && (peak === null || peak < SILENCE)) {
+    checks.push({
+      status: 'warn',
+      title: 'No sound from the console',
+      text: "Check that your console sends its sound over HDMI, not to a headset. Unplug any USB headset or Bluetooth adapter from the console, and check that the game isn't muted.",
+    })
+  } else if (prefs.muted || prefs.volume === 0) {
+    checks.push({ status: 'warn', title: 'PortPlay is muted', text: 'Press M or raise the volume.' })
+  } else {
+    checks.push({ status: 'good', title: 'Game sound', text: live ? 'Sound is coming through.' : 'Ready.' })
+  }
+
+  // Performance, only meaningful with a live picture
+  if (live) {
+    if (dropped > Math.max(8, fps * 0.4)) {
+      checks.push({
+        status: 'warn',
+        title: 'Frames are being dropped',
+        text: 'Your computer is falling behind drawing the picture. Turn off filters, Sharpen and instant replay, or try low latency mode with G.',
+      })
+    } else {
+      checks.push({ status: 'good', title: 'Performance', text: 'Your computer is keeping up.' })
+    }
+  }
+
+  return checks
+}
+
+$('checkup-open').onclick = openCheckup
+$('no-signal-check').onclick = openCheckup
+$('checkup-close').onclick = closeCheckup
+$('checkup-done').onclick = closeCheckup
+checkupAgain.onclick = runCheckup
+checkupEl.addEventListener('click', (e) => {
+  if (e.target === checkupEl) closeCheckup()
+})
 
 // Keyboard
 
@@ -1656,6 +2044,7 @@ const KEY_ACTIONS = {
   r: toggleRecording,
   v: saveReplay,
   m: toggleMute,
+  h: () => setSharpen(!profile().sharpen, { announce: true }),
   g: () => setLowLatency(!prefs.lowLatency, { announce: true }),
   o: () => (settingsOpen() ? closeSettings() : openSettings()),
 }
@@ -1667,10 +2056,20 @@ window.addEventListener('keydown', (e) => {
     toggleFullscreen()
     return
   }
+  if (e.key === 'Escape' && checkupOpen()) {
+    closeCheckup()
+    return
+  }
   if (e.key === 'Escape' && settingsOpen()) {
     closeSettings()
     return
   }
+  // Browsers leave full screen on Escape by themselves, the desktop app needs telling
+  if (e.key === 'Escape' && document.fullscreenElement) {
+    document.exitFullscreen()
+    return
+  }
+  if (checkupOpen()) return
 
   // Leave letter keys alone while typing, using a menu, or reading the front page
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return

@@ -840,6 +840,117 @@ body.idle [data-tip]::after {
   }
 }
 
+/* Check my setup */
+
+.checkup {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(4, 5, 8, 0.62);
+  backdrop-filter: blur(6px);
+  animation: fade-in 0.2s ease-out;
+}
+
+.checkup-card {
+  width: 460px;
+  max-width: 100%;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--panel-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.checkup-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.checkup-card h2 {
+  font-family: var(--font-display);
+  font-size: 19px;
+}
+
+#checkup-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 16px;
+  list-style: none;
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.check strong {
+  display: block;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.check p {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.check-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0b0d12;
+}
+
+.check.good .check-icon { background: var(--good); }
+.check.warn .check-icon { background: var(--warn); }
+.check.bad .check-icon { background: var(--danger); }
+.check.info .check-icon { background: var(--muted); }
+.check.pending .check-icon {
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+.check.pending strong { color: var(--muted); }
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.checkup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.checkup-open {
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+
+.no-signal-card .btn {
+  margin-top: 16px;
+}
+
 .tip {
   position: fixed;
   left: 16px;
@@ -1084,6 +1195,16 @@ option:disabled {
 .keys dd {
   color: var(--muted);
 }
+
+/* PlayStation face buttons, in their usual colors */
+.keys dt.glyph {
+  font-size: 14px;
+  line-height: 1.25;
+}
+.keys dt.ps-cross { color: #8cb8f0; }
+.keys dt.ps-circle { color: #ff7a7a; }
+.keys dt.ps-square { color: #eaa2d6; }
+.keys dt.ps-triangle { color: #4fd8a8; }
 
 /* Website landing page */
 

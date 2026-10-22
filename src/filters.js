@@ -1,4 +1,4 @@
-// Retro filters drawn with WebGL on a canvas laid over the video.
+// Retro filters and sharpening drawn with WebGL on a canvas laid over the video.
 // The video keeps playing underneath, so picture in picture, screenshots
 // and recordings always use the clean signal.
 
@@ -7,6 +7,9 @@ const FILTERS = {
   scanlines: { label: 'Scanlines', mode: 1 },
   crt: { label: 'CRT', mode: 2 },
 }
+
+// 0 to 1. Enough to bring back detail lost in the dongle's video compression.
+const SHARPEN_STRENGTH = 0.6
 
 const VERTEX_SHADER = `
 attribute vec2 aPos;
@@ -23,9 +26,28 @@ uniform sampler2D uTex;
 uniform vec2 uSrcSize;
 uniform float uLines;
 uniform int uMode;
+uniform float uSharpen;
 varying vec2 vUv;
 
 const float PI = 3.14159265;
+
+// The source pixel, sharpened when Sharpen is on. Based on contrast adaptive
+// sharpening (AMD FidelityFX CAS): edges that are already crisp get less, so
+// soft 720p and 1080p pictures look sharper without halos or extra noise.
+vec3 source(vec2 uv) {
+  vec3 c = texture2D(uTex, uv).rgb;
+  if (uSharpen <= 0.0) return c;
+  vec2 t = 1.0 / uSrcSize;
+  vec3 n = texture2D(uTex, uv - vec2(0.0, t.y)).rgb;
+  vec3 s = texture2D(uTex, uv + vec2(0.0, t.y)).rgb;
+  vec3 w = texture2D(uTex, uv - vec2(t.x, 0.0)).rgb;
+  vec3 e = texture2D(uTex, uv + vec2(t.x, 0.0)).rgb;
+  vec3 lo = min(c, min(min(n, s), min(w, e)));
+  vec3 hi = max(c, max(max(n, s), max(w, e)));
+  vec3 amount = sqrt(clamp(min(lo, 1.0 - hi) / max(hi, vec3(0.0001)), 0.0, 1.0));
+  vec3 weight = -amount / mix(8.0, 5.0, uSharpen);
+  return clamp((c + (n + s + w + e) * weight) / (1.0 + 4.0 * weight), 0.0, 1.0);
+}
 
 // Bends the picture like the glass of an old tube TV
 vec2 curve(vec2 uv) {
@@ -47,7 +69,7 @@ void main() {
     }
   }
 
-  vec3 color = texture2D(uTex, uv).rgb;
+  vec3 color = source(uv);
 
   if (crt) {
     // Color bleed: red and blue smear slightly sideways, as on composite video
@@ -61,10 +83,12 @@ void main() {
   }
 
   // Darken the gaps between lines, then lift the result back up
-  float line = 0.5 + 0.5 * cos(uv.y * uLines * 2.0 * PI);
-  float strength = crt ? 0.42 : 0.35;
-  color *= 1.0 - strength * (1.0 - line);
-  color *= crt ? 1.28 : 1.18;
+  if (uMode > 0) {
+    float line = 0.5 + 0.5 * cos(uv.y * uLines * 2.0 * PI);
+    float strength = crt ? 0.42 : 0.35;
+    color *= 1.0 - strength * (1.0 - line);
+    color *= crt ? 1.28 : 1.18;
+  }
 
   if (crt) {
     // Red, green and blue phosphor stripes
@@ -89,6 +113,7 @@ class FilterRenderer {
     this.video = video
     this.canvas = canvas
     this.filter = 'off'
+    this.sharpen = false
     this.running = false
     this.callbackId = null
     this.onFrameDrawn = null
@@ -139,15 +164,26 @@ class FilterRenderer {
       srcSize: gl.getUniformLocation(program, 'uSrcSize'),
       lines: gl.getUniformLocation(program, 'uLines'),
       mode: gl.getUniformLocation(program, 'uMode'),
+      sharpen: gl.getUniformLocation(program, 'uSharpen'),
     }
   }
 
+  // Drawing only happens for a filter or Sharpen. Otherwise the video shows as is.
   get active() {
-    return this.supported && this.filter !== 'off'
+    return this.supported && (this.filter !== 'off' || this.sharpen)
   }
 
   setFilter(name) {
     this.filter = FILTERS[name] ? name : 'off'
+    this.update()
+  }
+
+  setSharpen(on) {
+    this.sharpen = Boolean(on)
+    this.update()
+  }
+
+  update() {
     this.canvas.classList.toggle('hidden', !this.active)
     if (this.active) this.start()
     else this.stop()
@@ -210,6 +246,7 @@ class FilterRenderer {
       gl.uniform2f(this.uniforms.srcSize, v.videoWidth, h)
       gl.uniform1f(this.uniforms.lines, lines)
       gl.uniform1i(this.uniforms.mode, FILTERS[this.filter].mode || 0)
+      gl.uniform1f(this.uniforms.sharpen, this.sharpen ? SHARPEN_STRENGTH : 0)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 
       if (this.onFrameDrawn) this.onFrameDrawn(now, meta)

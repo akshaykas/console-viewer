@@ -61,7 +61,8 @@
         </div>
         <h2>Connected, waiting for a picture</h2>
         <p>Your console may be off or asleep. Press the PS, Home or Xbox button on your controller to wake it.</p>
-        <p class="muted">Still nothing? Check that the HDMI cable goes from the console into the dongle, and that the console's video output is set to 1080p or lower.</p>
+        <p class="muted">Still nothing? Check that the HDMI cable goes from the console into the dongle, and that the console's video output is set to 1080p or lower. PlayStation consoles also need HDCP turned off.</p>
+        <button id="no-signal-check" class="btn small ghost">Check my setup</button>
       </div>
     </div>
 
@@ -100,6 +101,23 @@
           <a id="download-installer" class="btn ghost hidden" href="#">
             <svg class="icon"><use href="#i-download" /></svg>Get the desktop app
           </a>
+        </div>
+      </div>
+    </div>
+
+    <div id="checkup" class="checkup hidden" role="dialog" aria-modal="true" aria-labelledby="checkup-title">
+      <div class="checkup-card">
+        <header>
+          <h2 id="checkup-title">Check my setup</h2>
+          <button id="checkup-close" class="icon-btn" aria-label="Close">
+            <svg class="icon"><use href="#i-close" /></svg>
+          </button>
+        </header>
+        <p id="checkup-summary" class="hint" aria-live="polite"></p>
+        <ul id="checkup-list"></ul>
+        <div class="checkup-actions">
+          <button id="checkup-again" class="btn small">Check again</button>
+          <button id="checkup-done" class="btn small primary">Done</button>
         </div>
       </div>
     </div>
@@ -188,11 +206,22 @@
           <label class="field">Resolution<select id="resolution"></select></label>
           <label class="field">Frame rate<select id="framerate"></select></label>
         </div>
+        <button id="checkup-open" class="btn small checkup-open">Check my setup</button>
+        <p class="hint">Looks for common problems with the dongle, picture and sound, and explains how to fix them.</p>
+      </section>
+
+      <section>
+        <h3>Picture</h3>
+        <label class="switch">
+          <input id="sharpen-toggle" type="checkbox" />
+          <span class="switch-ui"></span>
+          <span><strong>Sharpen</strong><br /><span class="hint">Makes 720p and 1080p look crisper on high resolution screens. Adds about one frame of delay, and pauses in low latency mode.</span></span>
+        </label>
       </section>
 
       <section>
         <h3>Profiles</h3>
-        <p class="hint">A profile remembers resolution, frame rate, scaling, filter and audio sync. The last profile you used with each capture device comes back automatically.</p>
+        <p class="hint">A profile remembers resolution, frame rate, scaling, filter, Sharpen and audio sync. The last profile you used with each capture device comes back automatically.</p>
         <div class="inline-form">
           <input id="profile-name" type="text" maxlength="24" placeholder="New profile name, like Switch" aria-label="New profile name" />
           <button id="profile-save" class="btn small primary">Save as new</button>
@@ -227,7 +256,7 @@
         <label class="switch">
           <input id="low-latency-toggle" type="checkbox" />
           <span class="switch-ui"></span>
-          <span><strong>Low latency mode</strong><br /><span class="hint">Pauses filters and instant replay so nothing sits between the dongle and your screen.</span></span>
+          <span><strong>Low latency mode</strong><br /><span class="hint">Pauses filters, Sharpen and instant replay so nothing sits between the dongle and your screen.</span></span>
         </label>
         <p id="save-location" class="hint"></p>
       </section>
@@ -235,8 +264,8 @@
       <section>
         <h3><svg class="icon"><use href="#i-gamepad" /></svg>Controller</h3>
         <p id="controller-status" class="hint">Plug a controller into this computer and press any button.</p>
-        <p class="hint">Hold Select (View or Share) and press:</p>
-        <dl class="keys">
+        <p id="pad-hint" class="hint">Hold Select (View, Share or Create) and press:</p>
+        <dl id="pad-keys" class="keys">
           <dt>A</dt><dd>Screenshot</dd>
           <dt>B</dt><dd>Start or stop recording</dd>
           <dt>X</dt><dd>Save instant replay</dd>
@@ -257,6 +286,7 @@
           <dt>V</dt><dd>Save instant replay</dd>
           <dt>S</dt><dd>Next scaling mode</dd>
           <dt>E</dt><dd>Next filter</dd>
+          <dt>H</dt><dd>Sharpen</dd>
           <dt>M</dt><dd>Mute</dd>
           <dt>G</dt><dd>Low latency mode</dd>
           <dt>L</dt><dd>Stats</dd>
