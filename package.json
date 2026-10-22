@@ -1,7 +1,7 @@
 {
   "name": "portplay",
   "productName": "PortPlay",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "description": "Play your game console on your laptop screen with a USB HDMI capture dongle.",
   "keywords": [
