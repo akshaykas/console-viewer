@@ -36,6 +36,10 @@ const lowLatencyBtn = $('low-latency')
 const statsBtn = $('stats')
 const pipBtn = $('pip')
 const fullscreenBtn = $('fullscreen')
+const clockBtn = $('clock-btn')
+const clockEl = $('clock')
+const clockToggle = $('clock-toggle')
+const clockCornerSeg = $('clock-corner')
 const settingsBtn = $('settings-btn')
 const settingsSheet = $('settings')
 const deviceSelect = $('device')
@@ -145,6 +149,9 @@ const prefs = {
   lowLatency: false,
   replay: false,
   stats: legacy('stats') === '1',
+  // Clock shown while full screen, and which corner it sits in
+  clock: false,
+  clockCorner: 'top-right',
   micId: '',
   micLevel: 1,
   // Game audio picked by hand, per video device name
@@ -1522,6 +1529,65 @@ function toggleFullscreen() {
   }
 }
 
+// Clock in full screen
+
+const CLOCK_CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+let clockTimer = null
+
+// HH:MM AM/PM, like 09:05 PM
+function formatClock(date) {
+  const hours = date.getHours() % 12 || 12
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${String(hours).padStart(2, '0')}:${minutes} ${date.getHours() < 12 ? 'AM' : 'PM'}`
+}
+
+function tickClock() {
+  clearTimeout(clockTimer)
+  const now = new Date()
+  clockEl.textContent = formatClock(now)
+  // Wake up just after the next minute starts
+  clockTimer = setTimeout(tickClock, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50)
+}
+
+function updateClock() {
+  const showing = prefs.clock && Boolean(document.fullscreenElement)
+  const corner = CLOCK_CORNERS.includes(prefs.clockCorner) ? prefs.clockCorner : 'top-right'
+  clockEl.className = `clock ${corner}${showing ? '' : ' hidden'}`
+  for (const c of CLOCK_CORNERS) document.body.classList.toggle(`clock-${c}`, showing && c === corner)
+  document.body.classList.toggle('fullscreen', Boolean(document.fullscreenElement))
+  clockBtn.setAttribute('aria-pressed', String(prefs.clock))
+  clockToggle.checked = prefs.clock
+  setSeg(clockCornerSeg, corner)
+  if (showing) tickClock()
+  else clearTimeout(clockTimer)
+}
+
+function setClock(on, { announce = false } = {}) {
+  prefs.clock = on
+  savePrefs()
+  updateClock()
+  if (announce) toast(on ? (document.fullscreenElement ? 'Clock on' : 'Clock on. It shows in full screen.') : 'Clock off', { duration: 1500 })
+}
+
+function setClockCorner(corner) {
+  if (!CLOCK_CORNERS.includes(corner)) return
+  prefs.clockCorner = corner
+  savePrefs()
+  updateClock()
+}
+
+document.addEventListener('fullscreenchange', updateClock)
+// Catch up after the computer sleeps, since timers pause
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) updateClock()
+})
+clockBtn.onclick = () => setClock(!prefs.clock, { announce: true })
+clockToggle.onchange = () => setClock(clockToggle.checked)
+clockCornerSeg.addEventListener('click', (e) => {
+  const button = e.target.closest('button')
+  if (button) setClockCorner(button.dataset.value)
+})
+
 // Settings panel
 
 function openSettings() {
@@ -2038,6 +2104,7 @@ const KEY_ACTIONS = {
   f: toggleFullscreen,
   p: togglePip,
   l: () => setStats(!statsOn),
+  k: () => setClock(!prefs.clock, { announce: true }),
   s: cycleScaling,
   e: cycleFilter,
   c: takeScreenshot,
@@ -2222,6 +2289,7 @@ applyProfileToUi()
 applyVolume()
 updateReplayButton()
 setStats(prefs.stats)
+updateClock()
 describePads()
 
 // Lets the website work offline and be installed as an app

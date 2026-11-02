@@ -6,7 +6,7 @@
     <title>PortPlay: play your console on your laptop</title>
     <meta
       name="description"
-      content="Play your PlayStation, Switch, Xbox or retro console on your laptop screen with a cheap HDMI to USB capture dongle. Free, runs in your browser, nothing is uploaded."
+      content="Play your PlayStation, Switch, Xbox or retro console on your laptop or iPad screen with a cheap HDMI to USB capture dongle. Free, runs in your browser, with apps for iPad, Mac and Windows. Nothing is uploaded."
     />
     <meta name="theme-color" content="#07080c" />
     <meta name="portplay-stores" data-windows="__WINDOWS_STORE_URL__" data-mac="__MAC_STORE_URL__" />
@@ -35,6 +35,7 @@
       <symbol id="i-replay" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" /><path d="M3 4v4.5h4.5" /><text class="fill" x="12.6" y="15.2" text-anchor="middle">30</text></symbol>
       <symbol id="i-pip" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><rect class="fill" x="12" y="11" width="7" height="6" rx="1" /></symbol>
       <symbol id="i-stats" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4" /></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></symbol>
       <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z" /></symbol>
       <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" /></symbol>
       <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="18" r="2" /></symbol>
@@ -65,6 +66,8 @@
         <button id="no-signal-check" class="btn small ghost">Check my setup</button>
       </div>
     </div>
+
+    <div id="clock" class="clock hidden" aria-hidden="true"></div>
 
     <div id="hud" class="hidden">
       <div class="row" title="Estimated time from when your computer receives a frame to when it is on screen. Does not include the dongle's own delay.">
@@ -178,6 +181,9 @@
         <button id="pip" class="icon-btn" aria-label="Picture in picture" aria-pressed="false" data-tip="Picture in picture (P)">
           <svg class="icon"><use href="#i-pip" /></svg>
         </button>
+        <button id="clock-btn" class="icon-btn fs-only" aria-label="Clock" aria-pressed="false" data-tip="Clock (K)">
+          <svg class="icon"><use href="#i-clock" /></svg>
+        </button>
         <button id="fullscreen" class="icon-btn" aria-label="Full screen" data-tip="Full screen (F)">
           <svg class="icon"><use href="#i-expand" /></svg>
         </button>
@@ -217,6 +223,21 @@
           <span class="switch-ui"></span>
           <span><strong>Sharpen</strong><br /><span class="hint">Makes 720p and 1080p look crisper on high resolution screens. Adds about one frame of delay, and pauses in low latency mode.</span></span>
         </label>
+      </section>
+
+      <section>
+        <h3>Clock</h3>
+        <label class="switch">
+          <input id="clock-toggle" type="checkbox" />
+          <span class="switch-ui"></span>
+          <span><strong>Show a clock in full screen</strong><br /><span class="hint">Shows the time in a corner while PortPlay is full screen. Press K or use the clock button to turn it on or off.</span></span>
+        </label>
+        <div class="corner-grid" id="clock-corner" role="group" aria-label="Clock corner">
+          <button data-value="top-left">Top left</button>
+          <button data-value="top-right">Top right</button>
+          <button data-value="bottom-left">Bottom left</button>
+          <button data-value="bottom-right">Bottom right</button>
+        </div>
       </section>
 
       <section>
@@ -290,6 +311,7 @@
           <dt>M</dt><dd>Mute</dd>
           <dt>G</dt><dd>Low latency mode</dd>
           <dt>L</dt><dd>Stats</dd>
+          <dt>K</dt><dd>Clock in full screen</dd>
           <dt>P</dt><dd>Picture in picture</dd>
           <dt>O</dt><dd>Settings</dd>
         </dl>
@@ -375,9 +397,9 @@
           </div>
           <p class="fine">The browser version works in Chrome and Edge, with nothing to install. Your browser will ask for camera and microphone access, because that's how it sees the dongle.</p>
           <div class="stores">
-            <span class="stores-label">Also available as a desktop app on the Mac App Store and the Microsoft Store</span>
+            <span class="stores-label">Also available as an app for iPad, Mac and Windows</span>
             <div class="store-badges">
-              <a class="store-badge" href="__MAC_STORE_URL__" target="_blank" rel="noopener"><img src="badges/mac-app-store.svg" alt="Download on the Mac App Store" /></a>
+              <a class="store-badge" href="__MAC_STORE_URL__" target="_blank" rel="noopener"><img src="badges/app-store.svg" alt="Download on the App Store for iPad and Mac" /></a>
               <a class="store-badge" href="__WINDOWS_STORE_URL__" target="_blank" rel="noopener"><img src="badges/microsoft-store.svg" alt="Get it from Microsoft" /></a>
             </div>
           </div>
@@ -477,12 +499,12 @@
           <p>No. Everything happens on your computer. Screenshots and clips are saved to your own Downloads folder.</p>
         </details>
         <details>
-          <summary>Do I need the desktop app?</summary>
-          <p>No. The website does everything. The desktop apps for Windows and Mac add their own window and save screenshots and clips straight to your Pictures and Videos folders. Get them from the Microsoft Store or the Mac App Store.</p>
+          <summary>Do I need the app?</summary>
+          <p>Not on a computer. The website does everything. The apps for Windows and Mac add their own window and save screenshots and clips straight to your Pictures and Videos folders. Get them from the Microsoft Store or the App Store. On an iPad, use the PortPlay app from the App Store.</p>
         </details>
         <details>
-          <summary>Does it work on a Mac or Chromebook?</summary>
-          <p>Yes. On a Mac, get the PortPlay app from the Mac App Store, or use this website in Chrome or Edge. On a Chromebook, the website works in Chrome.</p>
+          <summary>Does it work on an iPad, Mac or Chromebook?</summary>
+          <p>Yes. On an iPad with a USB-C port, get the PortPlay app from the App Store. On a Mac, get the same app from the App Store, or use this website in Chrome or Edge. On a Chromebook, the website works in Chrome.</p>
         </details>
         <details>
           <summary>The picture is choppy. What can I do?</summary>

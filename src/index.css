@@ -742,6 +742,94 @@ body.idle [data-tip]::after {
   color: var(--danger);
 }
 
+/* Full screen clock */
+
+.clock {
+  position: fixed;
+  z-index: 2;
+  padding: 6px 12px;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  transition: bottom 0.3s;
+}
+
+.clock.top-left {
+  top: 14px;
+  left: 14px;
+}
+
+.clock.top-right {
+  top: 14px;
+  right: 14px;
+}
+
+.clock.bottom-left {
+  bottom: 14px;
+  left: 14px;
+}
+
+.clock.bottom-right {
+  bottom: 14px;
+  right: 14px;
+}
+
+/* Stay clear of the control bar while it's showing */
+body:not(.idle) .clock.bottom-left,
+body:not(.idle) .clock.bottom-right {
+  bottom: 84px;
+}
+
+/* Move stats and the recording badge down when the clock takes their corner */
+body.clock-top-right #hud {
+  top: 62px;
+}
+
+body.clock-top-left #rec-indicator {
+  top: 62px;
+}
+
+/* Buttons that only make sense in full screen */
+body:not(.fullscreen) .fs-only {
+  display: none;
+}
+
+.corner-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.corner-grid button {
+  height: 30px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  border-radius: 9px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.corner-grid button:hover {
+  color: var(--text);
+}
+
+.corner-grid button[aria-pressed="true"] {
+  color: #fff;
+  background: var(--accent-strong);
+}
+
 /* Recording indicator */
 
 #rec-indicator {
